@@ -17,12 +17,12 @@ aiosqlite==0.20.0             # Async SQLite support
 youtube-transcript-api==0.6.2  # Extract YouTube transcripts/subtitles
 pytube==15.0.0                # YouTube video metadata (optional)
 
-# Web Content Extraction
-newspaper3k==0.2.8            # Primary web article extraction
-beautifulsoup4==4.12.3        # HTML parsing (fallback)
-lxml==5.3.0                   # Fast XML parser
-html5lib==1.1                 # HTML5 parser
-readability-lxml==0.8.1       # Content extraction like Firefox
+# Web Content Extraction (removed for YouTube-only version)
+# newspaper3k==0.2.8            # Primary web article extraction
+# beautifulsoup4==4.12.3        # HTML parsing (fallback)
+# lxml==5.3.0                   # Fast XML parser
+# html5lib==1.1                 # HTML5 parser
+# readability-lxml==0.8.1       # Content extraction like Firefox
 
 # HTTP & Web Requests
 requests==2.32.3              # HTTP library
@@ -32,8 +32,7 @@ urllib3==2.2.3                # URL handling utilities
 fake-useragent==1.5.1         # Random user agents
 
 # Telegram Bot
-python-telegram-bot==21.5     # Telegram Bot API wrapper
-aiogram==3.13.1               # Alternative async Telegram bot framework (optional)
+aiogram==3.13.1               # Modern async Telegram bot framework
 
 # Text Processing & NLP
 langdetect==1.0.9             # Language detection

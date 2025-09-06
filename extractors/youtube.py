@@ -14,6 +14,7 @@ from enum import Enum
 from urllib.parse import urlparse, parse_qs
 
 import validators
+import aiohttp
 from langdetect import detect, DetectorFactory
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, VideoUnavailable
 from pytube import YouTube, exceptions as pytube_exceptions
@@ -84,6 +85,7 @@ class ExtractionResponse:
     content: str
     video_info: Optional[YouTubeVideoInfo] = None
     transcript_info: Optional[TranscriptInfo] = None
+    transcript_segments: Optional[List[Dict]] = None  # Raw segments with timestamps
     processing_time: float = 0.0
     error_message: str = ""
     detected_language: Optional[str] = None
@@ -186,9 +188,132 @@ class YouTubeExtractor:
                 return match.group(1)
         return None
 
+    async def get_video_metadata_from_html(self, video_id: str) -> Optional[YouTubeVideoInfo]:
+        """
+        Get video metadata by parsing HTML page.
+        
+        Args:
+            video_id: YouTube video ID
+            
+        Returns:
+            Video metadata extracted from HTML or None
+        """
+        try:
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        return None
+                    
+                    html = await response.text()
+            
+            # Parse metadata from HTML
+            title = self._extract_from_html(html, r'<title>([^<]+)</title>')
+            if title:
+                title = title.replace(' - YouTube', '').strip()
+            
+            # Try different patterns for author
+            author = (
+                self._extract_from_html(html, r'<link itemprop="name" content="([^"]+)">') or
+                self._extract_from_html(html, r'"name":"([^"]+)"', context='"@type":"Person"') or
+                self._extract_from_html(html, r'"author":"([^"]+)"') 
+            )
+            
+            # Parse duration from PT format (PT26M58S -> seconds)
+            duration_str = self._extract_from_html(html, r'content="(PT[^"]+)"')
+            duration = self._parse_duration(duration_str) if duration_str else 0
+            
+            # Parse view count - get the bigger number (views, not likes)
+            view_counts = []
+            import re
+            for match in re.finditer(r'"userInteractionCount"[^}]*?"(\d+)"', html):
+                count = int(match.group(1))
+                if count > 1000:  # Views are usually much higher than likes
+                    view_counts.append(count)
+            view_count = max(view_counts) if view_counts else 0
+            
+            # Parse upload date
+            upload_date_str = self._extract_from_html(html, r'"uploadDate":"([^"]+)"')
+            publish_date = self._parse_date(upload_date_str) if upload_date_str else datetime.utcnow()
+            
+            # Parse description
+            description = self._extract_from_html(html, r'<meta name="description" content="([^"]*)"')
+            
+            return YouTubeVideoInfo(
+                video_id=video_id,
+                title=title or f"YouTube Video {video_id}",
+                channel=author or "Unknown Channel",
+                duration=duration,
+                view_count=view_count,
+                publish_date=publish_date,
+                description=description or "",
+                thumbnail_url=f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error parsing HTML metadata for {video_id}: {e}")
+            return None
+    
+    def _extract_from_html(self, html: str, pattern: str, context: str = None) -> Optional[str]:
+        """Extract data from HTML using regex."""
+        try:
+            if context:
+                # Find context first, then pattern within that context
+                context_match = re.search(re.escape(context) + r'[^}]*', html)
+                if context_match:
+                    context_text = context_match.group(0)
+                    match = re.search(pattern, context_text)
+                    return match.group(1) if match else None
+            else:
+                match = re.search(pattern, html)
+                return match.group(1) if match else None
+        except Exception:
+            return None
+    
+    def _parse_duration(self, duration_str: str) -> int:
+        """Parse YouTube duration format PT26M58S to seconds."""
+        try:
+            if not duration_str.startswith('PT'):
+                return 0
+                
+            duration_str = duration_str[2:]  # Remove 'PT'
+            
+            # Parse hours, minutes, seconds
+            hours = minutes = seconds = 0
+            
+            if 'H' in duration_str:
+                hours_match = re.search(r'(\d+)H', duration_str)
+                hours = int(hours_match.group(1)) if hours_match else 0
+                
+            if 'M' in duration_str:
+                minutes_match = re.search(r'(\d+)M', duration_str)
+                minutes = int(minutes_match.group(1)) if minutes_match else 0
+                
+            if 'S' in duration_str:
+                seconds_match = re.search(r'(\d+)S', duration_str)
+                seconds = int(seconds_match.group(1)) if seconds_match else 0
+                
+            return hours * 3600 + minutes * 60 + seconds
+            
+        except Exception:
+            return 0
+    
+    def _parse_date(self, date_str: str) -> datetime:
+        """Parse YouTube date format to datetime."""
+        try:
+            # Format: 2025-08-30T23:37:06-07:00
+            if 'T' in date_str:
+                date_part = date_str.split('T')[0]
+                year, month, day = map(int, date_part.split('-'))
+                return datetime(year, month, day)
+            return datetime.utcnow()
+        except Exception:
+            return datetime.utcnow()
+
     async def get_video_info(self, video_id: str) -> Optional[YouTubeVideoInfo]:
         """
-        Get video metadata - simplified version without external dependencies.
+        Get video metadata using pytube with HTML parsing fallback.
         
         Args:
             video_id: YouTube video ID
@@ -196,23 +321,45 @@ class YouTubeExtractor:
         Returns:
             Video metadata or None if unavailable
         """
+        # Try pytube first
         try:
-            # For now, create basic video info without external API
-            # This allows the extractor to work while we focus on transcript extraction
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            yt = YouTube(url)
+            
+            # Get publish date (fallback to today if not available)
+            publish_date = yt.publish_date if yt.publish_date else datetime.utcnow()
+            
             return YouTubeVideoInfo(
                 video_id=video_id,
-                title=f"YouTube Video {video_id}",  # Placeholder
-                channel="Unknown Channel",  # Placeholder
-                duration=0,  # Will be determined from transcript length
-                view_count=0,  # Placeholder
+                title=yt.title or f"YouTube Video {video_id}",
+                channel=yt.author or "Unknown Channel", 
+                duration=yt.length or 0,
+                view_count=yt.views or 0,
+                publish_date=publish_date,
+                description=yt.description or "",
+                thumbnail_url=yt.thumbnail_url or f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+            )
+            
+        except Exception as e:
+            logger.warning(f"Pytube failed for {video_id}: {e}, trying HTML parsing...")
+            
+            # Fallback to HTML parsing
+            html_info = await self.get_video_metadata_from_html(video_id)
+            if html_info:
+                return html_info
+            
+            # Final fallback to basic info
+            logger.error(f"All metadata extraction methods failed for {video_id}")
+            return YouTubeVideoInfo(
+                video_id=video_id,
+                title=f"YouTube Video {video_id}",
+                channel="Unknown Channel",
+                duration=0,
+                view_count=0,
                 publish_date=datetime.utcnow(),
                 description="",
                 thumbnail_url=f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
             )
-            
-        except Exception as e:
-            logger.error(f"Error creating video info for {video_id}: {e}")
-            return None
 
     def get_available_transcripts(self, video_id: str) -> List[TranscriptInfo]:
         """
@@ -318,7 +465,7 @@ class YouTubeExtractor:
             
         return None
 
-    async def extract_transcript(self, video_id: str, transcript_info: TranscriptInfo) -> str:
+    async def extract_transcript(self, video_id: str, transcript_info: TranscriptInfo) -> Tuple[str, List[Dict]]:
         """
         Extract transcript content for video.
         
@@ -327,7 +474,7 @@ class YouTubeExtractor:
             transcript_info: Selected transcript information
             
         Returns:
-            Transcript text content
+            Tuple of (transcript text content, raw segments with timestamps)
         """
         try:
             # Get transcript list and find the specific transcript
@@ -337,29 +484,45 @@ class YouTubeExtractor:
             # Fetch the transcript data
             transcript_data = transcript.fetch()
             
-            # Combine all transcript entries into single text
+            # Process transcript entries
             content = []
+            segments = []
+            
             for entry in transcript_data:
                 # Handle both dict and object formats
                 if hasattr(entry, 'text'):
                     text = entry.text.strip()
+                    start = getattr(entry, 'start', 0)
+                    duration = getattr(entry, 'duration', 0)
                 elif isinstance(entry, dict):
                     text = entry.get('text', '').strip()
+                    start = entry.get('start', 0)
+                    duration = entry.get('duration', 0)
                 else:
                     # Fallback - convert to string
                     text = str(entry).strip()
+                    start = 0
+                    duration = 0
                     
                 if text:
-                    content.append(text)
+                    # Clean up text
+                    clean_text = re.sub(r'\[.*?\]', '', text)  # Remove [Music], [Applause], etc.
+                    clean_text = clean_text.strip()
+                    
+                    if clean_text:
+                        content.append(clean_text)
+                        segments.append({
+                            'text': clean_text,
+                            'start': float(start),
+                            'duration': float(duration)
+                        })
                     
             full_content = ' '.join(content)
             
-            # Clean up common YouTube transcript artifacts
-            full_content = re.sub(r'\[.*?\]', '', full_content)  # Remove [Music], [Applause], etc.
-            full_content = re.sub(r'\s+', ' ', full_content)     # Normalize whitespace
-            full_content = full_content.strip()
+            # Normalize whitespace
+            full_content = re.sub(r'\s+', ' ', full_content).strip()
             
-            return full_content
+            return full_content, segments
             
         except Exception as e:
             logger.error(f"Error extracting transcript for {video_id}: {e}")
@@ -452,7 +615,7 @@ class YouTubeExtractor:
                 )
             
             # Extract transcript content
-            content = await self.extract_transcript(video_id, selected_transcript)
+            content, segments = await self.extract_transcript(video_id, selected_transcript)
             
             if not content or len(content.strip()) < 10:
                 return ExtractionResponse(
@@ -492,6 +655,7 @@ class YouTubeExtractor:
                 content=content,
                 video_info=video_info,
                 transcript_info=selected_transcript,
+                transcript_segments=segments,
                 processing_time=time.time() - start_time,
                 detected_language=detected_language,
                 used_language=selected_transcript.language_code

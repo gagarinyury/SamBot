@@ -298,9 +298,51 @@ class DeepSeekSummarizer:
         if request.target_language == "fr":
             if content_type == "youtube":
                 if request.summary_length == SummaryLength.BRIEF:
-                    return "Créez un résumé bref (2-3 phrases) de cette vidéo YouTube en français :\n\n{content}\n\nRésumé :"
+                    return """Créez un résumé bref et structuré de cette vidéo YouTube en français avec des emojis :
+
+{content}
+
+IMPORTANT: Formatez votre réponse avec cette structure exacte :
+📋 RÉSUMÉ BREF :
+• [2-3 phrases principales avec emojis pertinents]
+
+✅ POINTS CLÉS :
+• [point 1 avec emoji]
+• [point 2 avec emoji] 
+• [point 3 avec emoji]
+
+💡 CONCLUSION :
+• [conclusion principale avec emoji]
+
+Utilisez des emojis appropriés pour chaque section et point."""
                 else:
-                    return "Analysez cette transcription YouTube et créez un résumé détaillé en français avec les points clés, les insights principaux, et les conclusions importantes :\n\n{content}\n\nRésumé détaillé :"
+                    return """Analysez cette transcription YouTube et créez un résumé détaillé en français avec une structure claire et des emojis :
+
+{content}
+
+IMPORTANT: Formatez votre réponse avec cette structure exacte :
+📖 RÉSUMÉ DÉTAILLÉ :
+[Paragraphe d'introduction avec emojis]
+
+✅ POINTS PRINCIPAUX :
+• [point 1 avec emoji détaillé]
+• [point 2 avec emoji détaillé]
+• [point 3 avec emoji détaillé]
+• [point 4 avec emoji détaillé]
+
+🎯 INSIGHTS CLÉS :
+• [insight 1 avec emoji]
+• [insight 2 avec emoji]
+• [insight 3 avec emoji]
+
+💡 CONCLUSIONS IMPORTANTES :
+• [conclusion 1 avec emoji]
+• [conclusion 2 avec emoji]
+
+🔥 À RETENIR :
+• [point le plus important avec emoji]
+
+Utilisez des emojis variés et pertinents pour chaque section."""
             else:
                 if request.summary_length == SummaryLength.BRIEF:
                     return "Résumez cet article web en 2-3 phrases principales en français :\n\n{content}\n\nRésumé :"
@@ -310,9 +352,51 @@ class DeepSeekSummarizer:
         elif request.target_language == "en":
             if content_type == "youtube":
                 if request.summary_length == SummaryLength.BRIEF:
-                    return "Create a brief summary (2-3 sentences) of this YouTube video in English:\n\n{content}\n\nSummary:"
+                    return """Create a brief and structured summary of this YouTube video in English with emojis:
+
+{content}
+
+IMPORTANT: Format your response with this exact structure:
+📋 BRIEF SUMMARY:
+• [2-3 main sentences with relevant emojis]
+
+✅ KEY POINTS:
+• [point 1 with emoji]
+• [point 2 with emoji]
+• [point 3 with emoji]
+
+💡 CONCLUSION:
+• [main conclusion with emoji]
+
+Use appropriate emojis for each section and point."""
                 else:
-                    return "Analyze this YouTube transcript and create a detailed summary in English with key points, main insights, and important conclusions:\n\n{content}\n\nDetailed summary:"
+                    return """Analyze this YouTube transcript and create a detailed summary in English with clear structure and emojis:
+
+{content}
+
+IMPORTANT: Format your response with this exact structure:
+📖 DETAILED SUMMARY:
+[Introduction paragraph with emojis]
+
+✅ MAIN POINTS:
+• [detailed point 1 with emoji]
+• [detailed point 2 with emoji]
+• [detailed point 3 with emoji]
+• [detailed point 4 with emoji]
+
+🎯 KEY INSIGHTS:
+• [insight 1 with emoji]
+• [insight 2 with emoji]
+• [insight 3 with emoji]
+
+💡 IMPORTANT CONCLUSIONS:
+• [conclusion 1 with emoji]
+• [conclusion 2 with emoji]
+
+🔥 KEY TAKEAWAY:
+• [most important point with emoji]
+
+Use varied and relevant emojis for each section."""
             else:
                 if request.summary_length == SummaryLength.BRIEF:
                     return "Summarize this web article in 2-3 main sentences in English:\n\n{content}\n\nSummary:"
@@ -322,9 +406,51 @@ class DeepSeekSummarizer:
         elif request.target_language == "ru":
             if content_type == "youtube":
                 if request.summary_length == SummaryLength.BRIEF:
-                    return "Создайте краткое резюме (2-3 предложения) этого YouTube видео на русском языке:\n\n{content}\n\nКраткое резюме:"
+                    return """Создайте краткое и структурированное резюме этого YouTube видео на русском языке с эмодзи:
+
+{content}
+
+ВАЖНО: Форматируйте ваш ответ точно по этой структуре:
+📋 КРАТКОЕ РЕЗЮМЕ:
+• [2-3 основные фразы с подходящими эмодзи]
+
+✅ КЛЮЧЕВЫЕ МОМЕНТЫ:
+• [момент 1 с эмодзи]
+• [момент 2 с эмодзи]
+• [момент 3 с эмодзи]
+
+💡 ВЫВОД:
+• [основной вывод с эмодзи]
+
+Используйте подходящие эмодзи для каждого раздела и пункта."""
                 else:
-                    return "Проанализируйте эту расшифровку YouTube и создайте подробное резюме на русском языке с ключевыми моментами, основными выводами и важными заключениями:\n\n{content}\n\nПодробное резюме:"
+                    return """Проанализируйте эту расшифровку YouTube и создайте подробное резюме на русском языке с четкой структурой и эмодзи:
+
+{content}
+
+ВАЖНО: Форматируйте ваш ответ точно по этой структуре:
+📖 ПОДРОБНОЕ РЕЗЮМЕ:
+[Вступительный абзац с эмодзи]
+
+✅ ОСНОВНЫЕ МОМЕНТЫ:
+• [подробный момент 1 с эмодзи]
+• [подробный момент 2 с эмодзи]
+• [подробный момент 3 с эмодзи]
+• [подробный момент 4 с эмодзи]
+
+🎯 КЛЮЧЕВЫЕ ИНСАЙТЫ:
+• [инсайт 1 с эмодзи]
+• [инсайт 2 с эмодзи]
+• [инсайт 3 с эмодзи]
+
+💡 ВАЖНЫЕ ВЫВОДЫ:
+• [вывод 1 с эмодзи]
+• [вывод 2 с эмодзи]
+
+🔥 ГЛАВНОЕ:
+• [самый важный момент с эмодзи]
+
+Используйте разнообразные и подходящие эмодзи для каждого раздела."""
             else:
                 if request.summary_length == SummaryLength.BRIEF:
                     return "Резюмируйте эту веб-статью в 2-3 основных предложениях на русском языке:\n\n{content}\n\nКраткое резюме:"
