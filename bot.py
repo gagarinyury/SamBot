@@ -29,6 +29,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from config import get_config
 from extractors.youtube import extract_youtube_content, YouTubeVideoInfo
 from summarizers.deepseek import summarize_content, SummaryLength
+from services.youtube_service import YouTubeService
+from services.summarizer_service import SummarizerService
 
 # Configure logging
 logging.basicConfig(
@@ -53,6 +55,10 @@ class YouTubeSamBot:
         
         # User settings (in-memory for simplicity)
         self.user_settings = {}
+        
+        # Initialize services
+        self.youtube_service = YouTubeService()
+        self.summarizer_service = SummarizerService()
         
         # Language settings
         self.languages = {
@@ -431,8 +437,21 @@ class YouTubeSamBot:
                 # Fallback to truncated simple content
                 full_transcript = content[:transcript_char_limit] + ("..." if len(content) > transcript_char_limit else "")
             
-            # Get original description for main block
-            original_description = video_info.description or "Описание отсутствует"
+            # Get original description and make it expandable like transcript
+            from utils.formatters import clean_video_description
+            full_description = clean_video_description(video_info.description or "")
+            
+            # Create expandable description block
+            description_expandable = ""
+            if full_description and full_description.strip() != "Описание недоступно":
+                # Show first 150 chars as preview
+                if len(full_description) > 150:
+                    description_expandable = f"<blockquote expandable>📖 <b>Описание</b>\n{full_description}</blockquote>"
+                else:
+                    # Short descriptions don't need to be expandable
+                    description_expandable = f"📖 <b>Описание</b>\n{full_description}"
+            else:
+                description_expandable = "📖 <b>Описание</b>\nОписание недоступно"
             
             # Create expandable content with transcript segments only
             transcript_expandable = ""
@@ -461,8 +480,7 @@ class YouTubeSamBot:
                 f"📅 <b>Дата:</b> {publish_date}\n"
                 f"⏱️ <b>Длительность:</b> {duration_mins:02d}:{duration_secs:02d}\n"
                 f"👁️ <b>Просмотры:</b> {views_formatted}\n\n"
-                f"📖 <b>Описание</b>\n"
-                f"{original_description}\n\n"
+                f"{description_expandable}\n\n"
                 f"{transcript_expandable}"
             )
             
@@ -481,8 +499,8 @@ class YouTubeSamBot:
                 )
             except Exception as e:
                 if "text is too long" in str(e).lower():
-                    # Fallback to basic info with shorter description
-                    short_description = original_description[:500] + "..." if len(original_description) > 500 else original_description
+                    # Fallback to basic info without expandable blocks
+                    short_description = full_description[:300] + "..." if len(full_description) > 300 else full_description
                     fallback_text = (
                         f"🎥 <b>Название:</b> {title}\n"
                         f"👤 <b>Канал:</b> {video_info.channel}\n"
@@ -499,9 +517,10 @@ class YouTubeSamBot:
                 else:
                     raise
             
-            # Store content for AI processing
+            # Store content and video info for AI processing
             settings = self.get_user_settings(user_id)
             settings['current_content'] = content
+            settings['current_video_info'] = video_info
             
         except Exception as e:
             logger.error(f"Error extracting video info: {e}")
@@ -614,47 +633,41 @@ class YouTubeSamBot:
         await callback.answer()
     
     async def generate_ai_summary(self, message: types.Message, content: str, url: str, user_id: int):
-        """Generate AI summary for YouTube content."""
+        """Generate AI summary for YouTube content using new service."""
         settings = self.get_user_settings(user_id)
         
         try:
-            lang_info = self.languages[settings['language']]
-            summary_info = self.summary_types[settings['summary_type']]
-            
-            # Show processing message
-            processing_msg = await message.answer(
-                f"🤖 <b>Создаю {summary_info['name'].lower()} резюме...</b>\n\n"
-                f"🌐 Язык: {lang_info['emoji']} на {lang_info['flag']}\n"
-                f"📋 Тип: {summary_info['emoji']} {summary_info['desc']}\n\n"
-                f"⏳ <i>Анализирую контент с помощью ИИ...</i>",
-                parse_mode="HTML"
+            # Convert settings to UserSettings object
+            from models.user import UserSettings
+            user_settings = UserSettings(
+                user_id=user_id,
+                language=settings['language'],
+                summary_type=settings['summary_type']
             )
+            
+            # Show progress message using service
+            progress_text = self.summarizer_service.get_progress_message(user_settings)
+            processing_msg = await message.answer(progress_text, parse_mode="HTML")
             
             # Send typing indicator
             await self.bot.send_chat_action(message.chat.id, 'typing')
             
-            # Create summary
-            summary_length = SummaryLength.BRIEF if settings['summary_type'] == 'brief' else SummaryLength.DETAILED
+            # Get video info from user settings for display
+            video_info = settings.get('current_video_info')
             
-            summary_response = await summarize_content(
+            # Generate summary using service
+            summary_result = await self.summarizer_service.generate_summary(
                 content=content,
-                content_type="youtube",
-                target_language=settings['language'],
-                summary_length=summary_length.value,
+                video_info=video_info,
+                user_settings=user_settings,
                 user_id=user_id,
                 original_url=url
             )
             
-            # Format and send result
-            result_text = (
-                f"✅ <b>ИИ Резюме готово!</b>\n\n"
-                f"🌐 <b>Язык:</b> {lang_info['emoji']} {lang_info['name']}\n"
-                f"📋 <b>Тип:</b> {summary_info['emoji']} {summary_info['name']}\n"
-                f"🕐 <b>Время обработки:</b> {summary_response.processing_time:.1f}с\n\n"
-                f"{'━' * 30}\n"
-                f"{summary_response.summary}\n"
-                f"{'━' * 30}\n\n"
-                f"💡 <i>Отправь новую ссылку для следующего резюме!</i>"
+            # Format result using service
+            formatted_message = self.summarizer_service.format_summary_message(
+                summary_result, 
+                video_info
             )
             
             # Create "New Video" button
@@ -664,7 +677,7 @@ class YouTubeSamBot:
             keyboard.adjust(2)
             
             await processing_msg.edit_text(
-                result_text,
+                formatted_message,
                 parse_mode="HTML",
                 reply_markup=keyboard.as_markup()
             )

@@ -127,10 +127,14 @@ class YouTubeService:
             Formatted HTML message for Telegram
         """
         if extraction_result.status != ExtractionStatus.SUCCESS or not extraction_result.video_info:
+            logger.warning(f"⚠️ ОШИБКА ИЗВЛЕЧЕНИЯ: {extraction_result.status.value} - {extraction_result.error_message}")
             return self.message_formatter.format_error_message(
                 extraction_result.status.value,
                 extraction_result.error_message
             )
+        
+        logger.info(f"🎬 ФОРМАТИРОВАНИЕ ВИДЕО: {extraction_result.video_info.title[:50]}...")
+        logger.info(f"📄 ИСХОДНОЕ ОПИСАНИЕ: {repr((extraction_result.video_info.description or '')[:200])}")
         
         return self.message_formatter.format_video_message(
             extraction_result.video_info,

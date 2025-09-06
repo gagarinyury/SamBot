@@ -21,6 +21,7 @@ from pytube import YouTube, exceptions as pytube_exceptions
 
 from config import get_config
 from database.manager import get_database_manager
+from .youtube_api import YouTubeDataAPI, YouTubeVideoMetadata
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -123,6 +124,9 @@ class YouTubeExtractor:
         
         # YouTube transcript API client
         self.transcript_api = YouTubeTranscriptApi()
+        
+        # YouTube Data API client
+        self.youtube_api = YouTubeDataAPI()
         
         # URL patterns for YouTube
         self.youtube_patterns = [
@@ -313,7 +317,7 @@ class YouTubeExtractor:
 
     async def get_video_info(self, video_id: str) -> Optional[YouTubeVideoInfo]:
         """
-        Get video metadata using pytube with HTML parsing fallback.
+        Get video metadata using YouTube Data API v3, with pytube and HTML fallbacks.
         
         Args:
             video_id: YouTube video ID
@@ -321,24 +325,76 @@ class YouTubeExtractor:
         Returns:
             Video metadata or None if unavailable
         """
-        # Try pytube first
+        # Try YouTube Data API first (most reliable)
+        if self.youtube_api.api_key:
+            try:
+                logger.info(f"🔑 Trying YouTube Data API for {video_id}")
+                api_metadata = await self.youtube_api.get_video_metadata(video_id)
+                if api_metadata:
+                    logger.info(f"✅ YouTube Data API успешно получил метаданные для {video_id}")
+                    return YouTubeVideoInfo(
+                        video_id=video_id,
+                        title=api_metadata.title,
+                        channel=api_metadata.channel_title,
+                        duration=api_metadata.duration,
+                        view_count=api_metadata.view_count,
+                        publish_date=api_metadata.published_at.replace(tzinfo=None),
+                        description=api_metadata.description,
+                        thumbnail_url=api_metadata.thumbnail_url or f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+                    )
+            except Exception as e:
+                logger.error(f"❌ YouTube Data API failed for {video_id}: {e}")
+        
+        # Fallback to pytube
         try:
+            logger.info(f"🔄 Fallback to pytube for {video_id}")
             url = f"https://www.youtube.com/watch?v={video_id}"
             yt = YouTube(url)
             
             # Get publish date (fallback to today if not available)
             publish_date = yt.publish_date if yt.publish_date else datetime.utcnow()
             
-            return YouTubeVideoInfo(
+            logger.info(f"✅ Pytube успешно получил объект для {video_id}, извлекаем данные...")
+            
+            # Безопасное извлечение свойств
+            try:
+                title = yt.title or f"YouTube Video {video_id}"
+                logger.info(f"📝 TITLE: {title[:50]}...")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения title: {e}")
+                title = f"YouTube Video {video_id}"
+            
+            try:
+                description = yt.description or ""
+                logger.info(f"📝 PYTUBE ОПИСАНИЕ: {repr(description[:200])}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения description: {e}")
+                description = ""
+            
+            try:
+                channel = yt.author or "Unknown Channel"
+                duration = yt.length or 0
+                view_count = yt.views or 0
+                logger.info(f"📊 КАНАЛ: {channel}, ДЛИТЕЛЬНОСТЬ: {duration}с, ПРОСМОТРЫ: {view_count}")
+            except Exception as e:
+                logger.error(f"❌ Ошибка получения доп. данных: {e}")
+                channel = "Unknown Channel"
+                duration = 0
+                view_count = 0
+            
+            video_info = YouTubeVideoInfo(
                 video_id=video_id,
-                title=yt.title or f"YouTube Video {video_id}",
-                channel=yt.author or "Unknown Channel", 
-                duration=yt.length or 0,
-                view_count=yt.views or 0,
+                title=title,
+                channel=channel,
+                duration=duration,
+                view_count=view_count,
                 publish_date=publish_date,
-                description=yt.description or "",
-                thumbnail_url=yt.thumbnail_url or f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+                description=description,
+                thumbnail_url=f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
             )
+            
+            logger.info(f"🎬 СОЗДАН YouTubeVideoInfo с описанием длиной: {len(video_info.description)}")
+            return video_info
             
         except Exception as e:
             logger.warning(f"Pytube failed for {video_id}: {e}, trying HTML parsing...")

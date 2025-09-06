@@ -16,6 +16,7 @@ aiosqlite==0.20.0             # Async SQLite support
 # YouTube Content Extraction  
 youtube-transcript-api==0.6.2  # Extract YouTube transcripts/subtitles
 pytube==15.0.0                # YouTube video metadata (optional)
+isodate==0.7.2                # ISO 8601 date parsing for YouTube API
 
 # Web Content Extraction (removed for YouTube-only version)
 # newspaper3k==0.2.8            # Primary web article extraction

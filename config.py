@@ -38,6 +38,7 @@ class TelegramConfig:
 class YouTubeConfig:
     """YouTube extraction configuration."""
     preferred_languages: List[str]
+    api_key: Optional[str] = None
     allow_auto_generated: bool = True
     max_video_duration: int = 7200  # 2 hours in seconds
     
@@ -97,6 +98,7 @@ class Config:
         
         self.youtube = YouTubeConfig(
             preferred_languages=os.getenv('YOUTUBE_PREFERRED_LANGUAGES', 'en,ru,es,fr,de'),
+            api_key=os.getenv('YOUTUBE_API_KEY'),
             allow_auto_generated=os.getenv('YOUTUBE_ALLOW_AUTO_GENERATED', 'true').lower() == 'true',
             max_video_duration=int(os.getenv('MAX_VIDEO_DURATION', '7200'))
         )

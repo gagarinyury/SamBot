@@ -10,7 +10,7 @@ from datetime import datetime
 from models.video import YouTubeVideoInfo, ExtractionResponse
 from models.user import UserSettings
 from utils.config import get_config, Constants
-from utils.formatters import MessageFormatter
+from utils.formatters import MessageFormatter, SummaryFormatter
 from summarizers.deepseek import summarize_content, SummaryLength, SummaryResponse
 
 logger = logging.getLogger(__name__)
@@ -176,14 +176,14 @@ class SummarizerService:
         video_info: Optional[YouTubeVideoInfo] = None
     ) -> str:
         """
-        Format summary result as Telegram message.
+        Format summary result as beautiful Telegram message using new formatter.
         
         Args:
             summary_result: Result from generate_summary
             video_info: Optional video metadata
             
         Returns:
-            Formatted HTML message for Telegram
+            Beautifully formatted HTML message for Telegram
         """
         if not summary_result.get("success"):
             error_type = summary_result.get("error_type", "unknown")
@@ -192,52 +192,39 @@ class SummarizerService:
             return self.message_formatter.format_error_message(error_type, error_message)
         
         summary_text = summary_result.get("summary", "")
-        lang_info = summary_result.get("language_info", {})
-        summary_info = summary_result.get("summary_info", {})
         processing_time = summary_result.get("processing_time", 0)
+        tokens_used = summary_result.get("tokens_used", 0)
+        cache_hit = summary_result.get("cache_hit", False)
         
-        # Build header with video info if available
-        header_parts = ["🤖 <b>ИИ Резюме</b>"]
+        # Prepare video info
+        video_title = ""
+        channel_name = ""
+        video_duration = ""
         
         if video_info:
-            # Truncate title for header
-            title = video_info.title
-            if len(title) > 100:
-                title = title[:97] + "..."
-            header_parts.append(f"📹 {title}")
+            video_title = video_info.title
+            channel_name = video_info.channel
+            
+            # Format duration
+            duration_mins = video_info.duration // 60
+            duration_secs = video_info.duration % 60
+            video_duration = f"{duration_mins}:{duration_secs:02d}"
         
-        if lang_info:
-            header_parts.append(f"🌐 {lang_info.get('flag', '')} {lang_info.get('name', '')}")
+        # Prepare processing info
+        processing_info = {
+            "processing_time": processing_time,
+            "tokens_used": tokens_used,
+            "cache_hit": cache_hit
+        }
         
-        if summary_info:
-            header_parts.append(f"📋 {summary_info.get('emoji', '')} {summary_info.get('name', '')}")
-        
-        # Add processing info
-        header_parts.append(f"⏱️ {processing_time:.1f}с")
-        
-        # Format final message
-        header = "\n".join(header_parts)
-        
-        message_parts = [
-            header,
-            "",  # Empty line
-            summary_text
-        ]
-        
-        # Add footer with additional info
-        footer_parts = []
-        
-        if summary_result.get("cache_hit"):
-            footer_parts.append("💾 <i>Из кэша</i>")
-        
-        tokens_used = summary_result.get("tokens_used", 0)
-        if tokens_used > 0:
-            footer_parts.append(f"🔤 <i>{tokens_used} токенов</i>")
-        
-        if footer_parts:
-            message_parts.extend(["", " • ".join(footer_parts)])
-        
-        return "\n".join(message_parts)
+        # Use new beautiful formatter
+        return SummaryFormatter.format_ai_summary(
+            summary_content=summary_text,
+            video_title=video_title,
+            channel_name=channel_name,
+            video_duration=video_duration,
+            processing_info=processing_info
+        )
     
     def get_progress_message(
         self,
