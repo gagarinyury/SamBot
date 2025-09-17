@@ -51,7 +51,6 @@ pyyaml==6.0.2                 # YAML configuration files
 # Async & Concurrency
 asyncio                       # Built-in async support
 aiofiles==24.1.0              # Async file operations
-concurrent-futures==3.1.1     # Thread/process pools
 
 # Monitoring & Logging
 loguru==0.7.2                 # Advanced logging

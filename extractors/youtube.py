@@ -124,10 +124,10 @@ class YouTubeExtractor:
         
         # URL patterns for YouTube
         self.youtube_patterns = [
-            r'(?:https?://)?(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})',
-            r'(?:https?://)?(?:www\.)?youtu\.be/([a-zA-Z0-9_-]{11})',
-            r'(?:https?://)?(?:www\.)?youtube\.com/embed/([a-zA-Z0-9_-]{11})',
-            r'(?:https?://)?(?:www\.)?youtube\.com/v/([a-zA-Z0-9_-]{11})',
+            r'(?:https?://)?(?:www\.)?youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})$',
+            r'(?:https?://)?(?:www\.)?youtu\.be/([a-zA-Z0-9_-]{11})$',
+            r'(?:https?://)?(?:www\.)?youtube\.com/embed/([a-zA-Z0-9_-]{11})$',
+            r'(?:https?://)?(?:www\.)?youtube\.com/v/([a-zA-Z0-9_-]{11})$',
         ]
         
         # Statistics
@@ -188,7 +188,7 @@ class YouTubeExtractor:
 
     async def get_video_info(self, video_id: str) -> Optional[YouTubeVideoInfo]:
         """
-        Get video metadata - simplified version without external dependencies.
+        Get video metadata using pytube.
         
         Args:
             video_id: YouTube video ID
@@ -197,21 +197,32 @@ class YouTubeExtractor:
             Video metadata or None if unavailable
         """
         try:
-            # For now, create basic video info without external API
-            # This allows the extractor to work while we focus on transcript extraction
+            yt = YouTube(f"https://www.youtube.com/watch?v={video_id}")
+
+            # Use a non-blocking call to fetch video data
+            # This is a synchronous library, so we run it in a thread pool
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, yt.check_availability)
+
             return YouTubeVideoInfo(
                 video_id=video_id,
-                title=f"YouTube Video {video_id}",  # Placeholder
-                channel="Unknown Channel",  # Placeholder
-                duration=0,  # Will be determined from transcript length
-                view_count=0,  # Placeholder
-                publish_date=datetime.utcnow(),
-                description="",
-                thumbnail_url=f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg"
+                title=yt.title,
+                channel=yt.author,
+                duration=yt.length,
+                view_count=yt.views,
+                publish_date=yt.publish_date,
+                description=yt.description,
+                thumbnail_url=yt.thumbnail_url
             )
             
+        except pytube_exceptions.VideoUnavailable:
+            logger.warning(f"Video {video_id} is unavailable.")
+            raise VideoUnavailableError(f"Video {video_id} is unavailable.")
+        except pytube_exceptions.PytubeError as e:
+            logger.error(f"Pytube error for video {video_id}: {e}")
+            return None
         except Exception as e:
-            logger.error(f"Error creating video info for {video_id}: {e}")
+            logger.error(f"Error getting video info for {video_id}: {e}")
             return None
 
     def get_available_transcripts(self, video_id: str) -> List[TranscriptInfo]:
@@ -225,7 +236,7 @@ class YouTubeExtractor:
             List of available transcripts
         """
         try:
-            transcript_list = self.transcript_api.list(video_id)
+            transcript_list = self.transcript_api.list_transcripts(video_id)
             transcripts = []
             
             for transcript in transcript_list:
@@ -331,7 +342,7 @@ class YouTubeExtractor:
         """
         try:
             # Get transcript list and find the specific transcript
-            transcript_list = self.transcript_api.list(video_id)
+            transcript_list = self.transcript_api.list_transcripts(video_id)
             transcript = transcript_list.find_transcript([transcript_info.language_code])
             
             # Fetch the transcript data

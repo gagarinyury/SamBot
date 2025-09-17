@@ -192,22 +192,29 @@ class TestYouTubeExtractor:
     async def test_get_video_info_duration_exceeded(self, extractor):
         """Test video info with duration exceeding limit."""
         mock_youtube = MagicMock()
+        mock_youtube.title = "Long Video"
+        mock_youtube.author = "Test Channel"
         mock_youtube.length = 10000  # Exceeds 7200 limit
+        mock_youtube.views = 1000
+        mock_youtube.publish_date = datetime(2025, 1, 1)
+        mock_youtube.description = "Test description"
+        mock_youtube.thumbnail_url = "https://example.com/thumb.jpg"
         
         with patch('extractors.youtube.YouTube', return_value=mock_youtube):
             result = await extractor.get_video_info("dQw4w9WgXcQ")
             
-        assert result is None
+        assert result is not None
+        assert result.duration == 10000
 
     @pytest.mark.asyncio
     async def test_get_video_info_unavailable(self, extractor):
         """Test video info for unavailable video."""
-        from pytube.exceptions import VideoUnavailable
+        from pytube.exceptions import VideoUnavailable as PytubeVideoUnavailable
         
-        with patch('extractors.youtube.YouTube', side_effect=VideoUnavailable("Video unavailable")):
-            result = await extractor.get_video_info("invalid_id")
-            
-        assert result is None
+        with patch('extractors.youtube.YouTube') as mock_youtube:
+            mock_youtube.side_effect = PytubeVideoUnavailable(video_id="invalid_id")
+            with pytest.raises(VideoUnavailableError):
+                await extractor.get_video_info("invalid_id")
 
     def test_get_available_transcripts_success(self, extractor):
         """Test getting available transcripts."""
@@ -219,7 +226,7 @@ class TestYouTubeExtractor:
         mock_transcript.translation_languages = ['fr', 'ru']
         mock_transcript_list.__iter__.return_value = [mock_transcript]
         
-        with patch.object(extractor.transcript_api, 'list', return_value=mock_transcript_list):
+        with patch.object(extractor.transcript_api, 'list_transcripts', return_value=mock_transcript_list):
             result = extractor.get_available_transcripts("dQw4w9WgXcQ")
             
         assert len(result) == 1
@@ -231,7 +238,7 @@ class TestYouTubeExtractor:
         """Test getting transcripts when none available."""
         from youtube_transcript_api import NoTranscriptFound
         
-        with patch.object(extractor.transcript_api, 'list', 
+        with patch.object(extractor.transcript_api, 'list_transcripts',
                          side_effect=NoTranscriptFound("video_id", [], [])):
             result = extractor.get_available_transcripts("invalid_id")
             
@@ -254,7 +261,7 @@ class TestYouTubeExtractor:
         mock_transcript_list = MagicMock()
         mock_transcript_list.find_transcript.return_value = mock_transcript
         
-        with patch.object(extractor.transcript_api, 'list', return_value=mock_transcript_list):
+        with patch.object(extractor.transcript_api, 'list_transcripts', return_value=mock_transcript_list):
             result = await extractor.extract_transcript("dQw4w9WgXcQ", transcript_info)
             
         assert "Hello world This is a test" in result
@@ -265,7 +272,7 @@ class TestYouTubeExtractor:
         """Test transcript extraction failure."""
         transcript_info = TranscriptInfo("English", "en", False, True)
         
-        with patch.object(extractor.transcript_api, 'list', side_effect=Exception("API Error")):
+        with patch.object(extractor.transcript_api, 'list_transcripts', side_effect=Exception("API Error")):
             with pytest.raises(TranscriptUnavailableError):
                 await extractor.extract_transcript("invalid_id", transcript_info)
 
@@ -362,6 +369,33 @@ class TestYouTubeExtractor:
         with patch.object(extractor, 'get_video_info', return_value=video_info):
             result = await extractor.extract(request)
         
+        assert result.status == ExtractionStatus.DURATION_EXCEEDED
+        assert "exceeds limit" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_extract_rejects_long_video(self, extractor):
+        """Test that the extract method rejects a video that is too long."""
+        # This video is over 2 hours long, so it should be rejected.
+        long_video_url = "https://www.youtube.com/watch?v=8hly31xKli0"
+        request = ExtractionRequest(url=long_video_url)
+
+        # Mock the pytube response to control the duration
+        mock_youtube = MagicMock()
+        mock_youtube.title = "Long Video"
+        mock_youtube.author = "Test Channel"
+        mock_youtube.length = 8000  # > 7200, so it should be rejected
+        mock_youtube.views = 1000
+        mock_youtube.publish_date = datetime.utcnow()
+        mock_youtube.description = "A long video"
+        mock_youtube.thumbnail_url = "https://example.com/thumb.jpg"
+        mock_youtube.check_availability.return_value = None
+
+
+        with patch('extractors.youtube.YouTube', return_value=mock_youtube) as mock_pytube:
+            result = await extractor.extract(request)
+            mock_pytube.assert_called_once_with(f"https://www.youtube.com/watch?v=8hly31xKli0")
+
+
         assert result.status == ExtractionStatus.DURATION_EXCEEDED
         assert "exceeds limit" in result.error_message
 
