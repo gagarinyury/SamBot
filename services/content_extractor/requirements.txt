@@ -22,3 +22,8 @@ structlog==24.1.0
 
 # Utilities
 python-dotenv==1.0.1
+
+# Whisper for audio transcription
+openai-whisper>=20231117
+torch>=2.0.0
+numba==0.60.0  # Fix for whisper compatibility

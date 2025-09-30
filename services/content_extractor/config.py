@@ -1,5 +1,6 @@
 """Configuration settings for Content Extractor service."""
 
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 
@@ -22,6 +23,11 @@ class Settings(BaseSettings):
     # Chunking
     DEFAULT_CHUNK_SIZE: int = 500  # tokens
     DEFAULT_CHUNK_OVERLAP: int = 50  # tokens
+
+    # Whisper settings
+    WHISPER_MODEL: str = "base"  # tiny, base, small, medium, large
+    WHISPER_DEVICE: str = "cpu"  # cpu or cuda
+    WHISPER_LANGUAGE: Optional[str] = None  # None for auto-detect, or "ru", "en", etc.
 
     # Service
     SERVICE_PORT: int = 8000

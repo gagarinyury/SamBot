@@ -21,6 +21,7 @@ class ContentExtractor:
         self.audio_storage = Path(settings.AUDIO_STORAGE_PATH)
         self.audio_storage.mkdir(exist_ok=True, parents=True)
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        self._whisper_model = None  # Lazy load
 
     async def extract(
         self,
@@ -92,6 +93,14 @@ class ContentExtractor:
         if not transcript:
             audio_file = await self._download_audio(url)
             logger.info("audio_downloaded", file=audio_file)
+
+            # Step 4.5: Transcribe audio with Whisper
+            audio_path = self.audio_storage / audio_file
+            transcript = await self._transcribe_audio(audio_path)
+            if transcript:
+                strategy = "whisper"
+                extraction_method = "whisper_transcription"
+                logger.info("whisper_transcription_completed", length=len(transcript))
 
         # Step 5: Save to database
         content_id = await db.save_content(
@@ -356,6 +365,50 @@ class ContentExtractor:
         except Exception as e:
             logger.error("audio_download_failed", error=str(e))
             raise
+
+    async def _transcribe_audio(self, audio_path: Path) -> Optional[str]:
+        """
+        Transcribe audio file using Whisper.
+
+        Args:
+            audio_path: Path to audio file
+
+        Returns:
+            Transcribed text or None if failed
+        """
+        try:
+            import whisper
+
+            # Lazy load model (heavy operation)
+            if self._whisper_model is None:
+                logger.info("loading_whisper_model", model=settings.WHISPER_MODEL)
+                self._whisper_model = whisper.load_model(
+                    settings.WHISPER_MODEL,
+                    device=settings.WHISPER_DEVICE
+                )
+                logger.info("whisper_model_loaded")
+
+            logger.info("transcribing_audio", file=audio_path.name)
+
+            # Transcribe
+            result = self._whisper_model.transcribe(
+                str(audio_path),
+                language=settings.WHISPER_LANGUAGE,
+                fp16=False  # CPU compatibility
+            )
+
+            transcript = result["text"].strip()
+            logger.info(
+                "transcription_completed",
+                detected_language=result.get("language"),
+                length=len(transcript)
+            )
+
+            return transcript if transcript else None
+
+        except Exception as e:
+            logger.error("whisper_transcription_failed", error=str(e))
+            return None
 
     def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
         """

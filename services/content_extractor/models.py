@@ -25,7 +25,7 @@ class ExtractionResponse(BaseModel):
     """Response model for successful extraction."""
     status: Literal["success", "cached"]
     content_id: int
-    strategy: Literal["transcript", "audio"]
+    strategy: Literal["transcript", "audio", "whisper"]
     extraction_method: str
     metadata: ContentMetadata
     has_transcript: bool
