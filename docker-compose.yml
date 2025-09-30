@@ -1,0 +1,127 @@
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: sambot_v2_postgres
+    environment:
+      POSTGRES_DB: sambot_v2
+      POSTGRES_USER: sambot
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-sambot_secure_pass_change_me}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sambot -d sambot_v2"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - sambot_network
+    restart: unless-stopped
+
+  # Redis for task queues and caching
+  redis:
+    image: redis:7-alpine
+    container_name: sambot_v2_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - sambot_network
+    restart: unless-stopped
+
+  # PO Token Provider (bypasses YouTube bot detection)
+  pot_provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    container_name: sambot_v2_pot_provider
+    ports:
+      - "4416:4416"
+    init: true
+    networks:
+      - sambot_network
+    restart: unless-stopped
+
+  # Content Extractor Service (Phase 1: YouTube)
+  youtube_extractor:
+    build: ./services/content_extractor
+    container_name: sambot_v2_youtube_extractor
+    environment:
+      DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # PO Token Provider for YouTube bot bypass
+      POT_PROVIDER_URL: http://pot_provider:4416
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pot_provider:
+        condition: service_started
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./cookies:/app/cookies
+    networks:
+      - sambot_network
+    restart: unless-stopped
+
+  # AI Service (Docker Model Runner wrapper) - Phase 3
+  # ai_service:
+  #   build: ./services/ai_service
+  #   container_name: sambot_v2_ai_service
+  #   environment:
+  #     DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
+  #     MODEL_RUNNER_URL: http://model-runner.docker.internal/engines/v1
+  #     MODEL_NAME: ${MODEL_NAME:-ai/qwen2.5:3B-Q4_K_M}
+  #     EMBEDDING_MODEL: ${EMBEDDING_MODEL:-ai/qwen2.5:3B-Q4_K_M}
+  #     EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1536}
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     ENVIRONMENT: ${ENVIRONMENT:-development}
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   ports:
+  #     - "8002:8000"
+  #   networks:
+  #     - sambot_network
+  #   restart: unless-stopped
+
+  # Web Monitor UI - Phase 4
+  # web_monitor:
+  #   build: ./services/web_monitor
+  #   container_name: sambot_v2_web_monitor
+  #   environment:
+  #     DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
+  #     YOUTUBE_EXTRACTOR_URL: http://youtube_extractor:8000
+  #     AI_SERVICE_URL: http://ai_service:8000
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     ENVIRONMENT: ${ENVIRONMENT:-development}
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #   ports:
+  #     - "8080:8000"
+  #   networks:
+  #     - sambot_network
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  sambot_network:
+    driver: bridge

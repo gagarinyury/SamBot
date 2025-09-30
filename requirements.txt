@@ -1,0 +1,50 @@
+# ========================================
+# SamBot 2.0 - Python Dependencies
+# ========================================
+
+# Database drivers
+asyncpg>=0.29.0          # PostgreSQL async driver
+aiosqlite>=0.19.0        # SQLite async driver (for migration)
+
+# Web frameworks
+fastapi>=0.109.0         # Modern web framework
+uvicorn[standard]>=0.27.0  # ASGI server
+aiohttp>=3.9.0           # Async HTTP client
+
+# Data validation
+pydantic>=2.5.0          # Data validation
+pydantic-settings>=2.1.0 # Settings management
+
+# Redis
+redis>=5.0.0             # Redis client
+aioredis>=2.0.1          # Async Redis client (if needed)
+
+# Telegram (future)
+aiogram>=3.3.0           # Telegram bot framework
+
+# YouTube processing
+youtube-transcript-api>=0.6.2  # YouTube transcripts
+yt-dlp>=2024.1.0         # YouTube downloader
+
+# AI and embeddings
+openai>=1.10.0           # OpenAI-compatible API client
+tiktoken>=0.5.2          # Token counting
+
+# Vector operations
+numpy>=1.26.0            # Numerical operations
+pgvector>=0.2.4          # pgvector client (if needed)
+
+# Utilities
+python-dotenv>=1.0.0     # Environment variables
+python-multipart>=0.0.6  # Form parsing
+httpx>=0.26.0            # Modern HTTP client
+
+# Logging and monitoring
+structlog>=24.1.0        # Structured logging
+
+# Development
+pytest>=7.4.0            # Testing framework
+pytest-asyncio>=0.23.0   # Async testing
+black>=24.1.0            # Code formatter
+mypy>=1.8.0              # Type checker
+ruff>=0.1.0              # Fast linter
