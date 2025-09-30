@@ -11,13 +11,66 @@ from typing import Optional, List, Dict
 
 from extractors.youtube import YouTubeExtractor, ExtractionStatus
 from chunking.chapter_based import ChapterBasedChunker
-from chunking.fixed_size import FixedSizeChunker
+from chunking.fixed_size import FixedSizeChunker, Chunk
 from database.connection import get_db_connection, close_db_connection
 from database.repository import ContentRepository
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Helper functions
+def format_chunks_for_storage(chunks: List, include_chapter_title: bool = False) -> List[Dict]:
+    """
+    Convert Chunk objects to dictionaries for storage.
+
+    Args:
+        chunks: List of Chunk objects
+        include_chapter_title: Whether to include chapter_title field
+
+    Returns:
+        List of chunk dictionaries
+    """
+    chunks_data = []
+    for c in chunks:
+        chunk_dict = {
+            'chunk_index': c.chunk_index,
+            'chunk_text': c.chunk_text,
+            'start_timestamp': c.start_timestamp,
+            'end_timestamp': c.end_timestamp,
+            'chunk_length': c.chunk_length,
+            'chunk_tokens': c.chunk_tokens
+        }
+        if include_chapter_title and hasattr(c, 'chapter_title'):
+            chunk_dict['chapter_title'] = c.chapter_title
+        chunks_data.append(chunk_dict)
+    return chunks_data
+
+
+def apply_fixed_size_chunking(
+    content: str,
+    transcript_segments: List[Dict],
+    video_duration: int,
+    chunk_size: int = 500
+) -> tuple[List, str, Dict]:
+    """
+    Apply fixed-size chunking strategy.
+
+    Args:
+        content: Text content to chunk
+        transcript_segments: Transcript segments with timestamps
+        video_duration: Video duration in seconds
+        chunk_size: Target chunk size in tokens
+
+    Returns:
+        Tuple of (chunks, strategy_name, strategy_metadata)
+    """
+    fixed_chunker = FixedSizeChunker(chunk_size=chunk_size)
+    chunks = fixed_chunker.chunk(content, transcript_segments, video_duration)
+    strategy_name = fixed_chunker.get_strategy_name()
+    strategy_metadata = {'total_chunks': len(chunks)}
+    return chunks, strategy_name, strategy_metadata
 
 
 # Pydantic models
@@ -123,7 +176,7 @@ async def extract_content(request: ExtractionRequest):
             content=extraction_result.content,
             content_type='youtube',
             metadata=metadata,
-            extraction_method='youtube_transcript_api',
+            extraction_method='yt-dlp',
             user_id=request.user_id
         )
 
@@ -150,61 +203,24 @@ async def extract_content(request: ExtractionRequest):
                     'chapter_count': len(chapters),
                     'total_chunks': len(chunks)
                 }
-                chunks_data = [
-                    {
-                        'chunk_index': c.chunk_index,
-                        'chunk_text': c.chunk_text,
-                        'start_timestamp': c.start_timestamp,
-                        'end_timestamp': c.end_timestamp,
-                        'chunk_length': c.chunk_length,
-                        'chunk_tokens': c.chunk_tokens,
-                        'chapter_title': c.chapter_title
-                    }
-                    for c in chunks
-                ]
+                chunks_data = format_chunks_for_storage(chunks, include_chapter_title=True)
             else:
                 logger.info("Chapters not suitable, using fixed-size chunking")
-                fixed_chunker = FixedSizeChunker(chunk_size=500)
-                chunks = fixed_chunker.chunk(
+                chunks, strategy_name, strategy_metadata = apply_fixed_size_chunking(
                     extraction_result.content,
                     transcript_segments,
                     video_info.duration
                 )
-                strategy_name = fixed_chunker.get_strategy_name()
-                strategy_metadata = {'total_chunks': len(chunks)}
-                chunks_data = [
-                    {
-                        'chunk_index': c.chunk_index,
-                        'chunk_text': c.chunk_text,
-                        'start_timestamp': c.start_timestamp,
-                        'end_timestamp': c.end_timestamp,
-                        'chunk_length': c.chunk_length,
-                        'chunk_tokens': c.chunk_tokens
-                    }
-                    for c in chunks
-                ]
+                chunks_data = format_chunks_for_storage(chunks)
         else:
             # No chapters, use fixed-size
             logger.info("No chapters found, using fixed-size chunking")
-            fixed_chunker = FixedSizeChunker(chunk_size=500)
-            chunks = fixed_chunker.chunk(
+            chunks, strategy_name, strategy_metadata = apply_fixed_size_chunking(
                 extraction_result.content,
                 transcript_segments,
                 video_info.duration
             )
-            strategy_name = fixed_chunker.get_strategy_name()
-            strategy_metadata = {'total_chunks': len(chunks)}
-            chunks_data = [
-                {
-                    'chunk_index': c.chunk_index,
-                    'chunk_text': c.chunk_text,
-                    'start_timestamp': c.start_timestamp,
-                    'end_timestamp': c.end_timestamp,
-                    'chunk_length': c.chunk_length,
-                    'chunk_tokens': c.chunk_tokens
-                }
-                for c in chunks
-            ]
+            chunks_data = format_chunks_for_storage(chunks)
 
         # Store chunks
         if chunks_data:
@@ -219,7 +235,7 @@ async def extract_content(request: ExtractionRequest):
             status="success",
             content_id=content_id,
             platform="youtube",
-            extraction_method="youtube_transcript_api",
+            extraction_method="yt-dlp",
             metadata=metadata,
             chunking={
                 'strategy': strategy_name,
