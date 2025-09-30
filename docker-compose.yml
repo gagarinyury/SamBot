@@ -42,18 +42,20 @@ services:
       - sambot_network
     restart: unless-stopped
 
-  # PO Token Provider (bypasses YouTube bot detection)
-  pot_provider:
-    image: brainicism/bgutil-ytdlp-pot-provider:latest
-    container_name: sambot_v2_pot_provider
-    ports:
-      - "4416:4416"
-    init: true
-    networks:
-      - sambot_network
-    restart: unless-stopped
+  # PO Token Provider - DISABLED
+  # Not used anymore - causes more blocking than it prevents
+  # YouTube extraction works better without POT tokens
+  # pot_provider:
+  #   image: brainicism/bgutil-ytdlp-pot-provider:latest
+  #   container_name: sambot_v2_pot_provider
+  #   ports:
+  #     - "4416:4416"
+  #   init: true
+  #   networks:
+  #     - sambot_network
+  #   restart: unless-stopped
 
-  # Content Extractor Service (Phase 1: YouTube)
+  # Content Extractor Service (Phase 2.1: YouTube)
   youtube_extractor:
     build: ./services/content_extractor
     container_name: sambot_v2_youtube_extractor
@@ -61,17 +63,11 @@ services:
       DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: ${ENVIRONMENT:-development}
-      # PO Token Provider for YouTube bot bypass
-      POT_PROVIDER_URL: http://pot_provider:4416
     depends_on:
       postgres:
         condition: service_healthy
-      pot_provider:
-        condition: service_started
     ports:
       - "8001:8000"
-    volumes:
-      - ./cookies:/app/cookies
     networks:
       - sambot_network
     restart: unless-stopped

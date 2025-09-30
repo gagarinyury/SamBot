@@ -223,10 +223,21 @@ def extract_video_chapters(description: str, video_duration: int = 0) -> Dict:
     extractor = get_chapter_extractor()
     chapters = extractor.extract_chapters(description)
     
+    # Convert VideoChapter dataclasses to dicts for JSON serialization
+    chapters_dicts = [
+        {
+            'time': ch.time,
+            'title': ch.title,
+            'start_seconds': ch.start_seconds,
+            'end_seconds': ch.end_seconds
+        }
+        for ch in chapters
+    ]
+
     result = {
         'has_chapters': len(chapters) > 0,
         'chapter_count': len(chapters),
-        'chapters': chapters,
+        'chapters': chapters_dicts,
         'segments': [],
         'should_use_chapters': False
     }
