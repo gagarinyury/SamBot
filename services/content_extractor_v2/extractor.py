@@ -173,6 +173,8 @@ class ContentExtractor:
         Returns:
             Full transcript text or None if not available
         """
+        logger.info("transcript_extraction_start", url=url[:50])
+
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -184,16 +186,22 @@ class ContentExtractor:
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info("yt_dlp_extracting_info")
                 info = ydl.extract_info(url, download=False)
 
                 has_subs = bool(info.get('subtitles'))
                 has_auto = bool(info.get('automatic_captions'))
 
+                logger.info("subtitle_check", has_manual=has_subs, has_auto=has_auto)
+
                 if not (has_subs or has_auto):
+                    logger.info("no_subtitles_found")
                     return None
 
                 # Get subtitles source
                 source = info.get('subtitles') or info.get('automatic_captions')
+                available_langs = list(source.keys())
+                logger.info("available_languages", langs=available_langs[:5])
 
                 # Find best language
                 lang = self._find_best_language(
@@ -202,15 +210,29 @@ class ContentExtractor:
                 )
 
                 if not lang:
+                    logger.error("no_suitable_language_found", available=available_langs[:5])
                     return None
+
+                logger.info("selected_language", lang=lang)
 
                 # Get transcript URL
                 for sub in source[lang]:
-                    if sub.get('url'):
-                        # Download and parse transcript
-                        transcript = await self._download_transcript(sub['url'])
-                        return transcript
+                    sub_url = sub.get('url')
+                    sub_ext = sub.get('ext')
+                    logger.info("checking_subtitle", ext=sub_ext, has_url=bool(sub_url))
 
+                    if sub_url:
+                        logger.info("downloading_transcript", url=sub_url[:70])
+                        # Download and parse transcript
+                        transcript = await self._download_transcript(sub_url)
+
+                        if transcript:
+                            logger.info("transcript_extracted", length=len(transcript))
+                            return transcript
+                        else:
+                            logger.error("transcript_download_returned_empty")
+
+                logger.error("no_subtitle_url_found")
                 return None
 
         except Exception as e:
@@ -250,11 +272,14 @@ class ContentExtractor:
             # Use aiohttp instead of requests (works better in Docker)
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    logger.info("transcript_response", status=resp.status, content_type=resp.headers.get('Content-Type'))
+
                     if resp.status != 200:
                         logger.error("transcript_download_failed", status=resp.status, url=url[:50])
                         return ""
 
                     content = await resp.text()
+                    logger.info("transcript_content_received", length=len(content))
 
                     if not content:
                         logger.error("transcript_download_empty", url=url[:50])
