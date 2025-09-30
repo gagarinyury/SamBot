@@ -1,25 +1,25 @@
 FROM python:3.11-slim
 
-WORKDIR /app
-
-# Install system dependencies including Deno (required for YouTube downloads)
+# Install system dependencies (ffmpeg for audio conversion)
 RUN apt-get update && apt-get install -y \
-    gcc \
-    curl \
-    unzip \
-    && curl -fsSL https://deno.land/install.sh | sh \
-    && mv /root/.deno/bin/deno /usr/local/bin/ \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
+# Set working directory
+WORKDIR /app
+
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
+# Create audio storage directory
+RUN mkdir -p /app/audio_storage
+
 # Expose port
 EXPOSE 8000
 
 # Run application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "main.py"]

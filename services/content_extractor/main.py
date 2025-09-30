@@ -1,298 +1,222 @@
-"""
-Content Extractor Service - FastAPI application.
-Phase 1: YouTube extraction with chapter-based chunking.
-"""
+"""FastAPI application for Content Extractor service."""
 
-import logging
+import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, HttpUrl
-from typing import Optional, List, Dict
+from fastapi.responses import JSONResponse
 
-from extractors.youtube import YouTubeExtractor, ExtractionStatus
-from chunking.chapter_based import ChapterBasedChunker
-from chunking.fixed_size import FixedSizeChunker, Chunk
-from database.connection import get_db_connection, close_db_connection
-from database.repository import ContentRepository
+from config import settings
+from database import db
+from extractor import extractor
+from models import (
+    ExtractionRequest,
+    ExtractionResponse,
+    ErrorResponse
+)
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        structlog.processors.JSONRenderer()
+    ]
+)
 
-
-# Helper functions
-def format_chunks_for_storage(chunks: List, include_chapter_title: bool = False) -> List[Dict]:
-    """
-    Convert Chunk objects to dictionaries for storage.
-
-    Args:
-        chunks: List of Chunk objects
-        include_chapter_title: Whether to include chapter_title field
-
-    Returns:
-        List of chunk dictionaries
-    """
-    chunks_data = []
-    for c in chunks:
-        chunk_dict = {
-            'chunk_index': c.chunk_index,
-            'chunk_text': c.chunk_text,
-            'start_timestamp': c.start_timestamp,
-            'end_timestamp': c.end_timestamp,
-            'chunk_length': c.chunk_length,
-            'chunk_tokens': c.chunk_tokens
-        }
-        if include_chapter_title and hasattr(c, 'chapter_title'):
-            chunk_dict['chapter_title'] = c.chapter_title
-        chunks_data.append(chunk_dict)
-    return chunks_data
+logger = structlog.get_logger()
 
 
-def apply_fixed_size_chunking(
-    content: str,
-    transcript_segments: List[Dict],
-    video_duration: int,
-    chunk_size: int = 500
-) -> tuple[List, str, Dict]:
-    """
-    Apply fixed-size chunking strategy.
-
-    Args:
-        content: Text content to chunk
-        transcript_segments: Transcript segments with timestamps
-        video_duration: Video duration in seconds
-        chunk_size: Target chunk size in tokens
-
-    Returns:
-        Tuple of (chunks, strategy_name, strategy_metadata)
-    """
-    fixed_chunker = FixedSizeChunker(chunk_size=chunk_size)
-    chunks = fixed_chunker.chunk(content, transcript_segments, video_duration)
-    strategy_name = fixed_chunker.get_strategy_name()
-    strategy_metadata = {'total_chunks': len(chunks)}
-    return chunks, strategy_name, strategy_metadata
-
-
-# Pydantic models
-class ExtractionRequest(BaseModel):
-    url: HttpUrl
-    user_id: Optional[int] = None
-    language: str = "ru"
-
-
-class ExtractionResponse(BaseModel):
-    status: str
-    content_id: Optional[int] = None
-    platform: str = "youtube"
-    extraction_method: str
-    metadata: Dict
-    chunking: Dict
-    processing_time: float
-
-
-class ContentResponse(BaseModel):
-    content_id: int
-    url: str
-    platform: str
-    content: str
-    metadata: Dict
-    chunks: List[Dict]
-
-
-class HealthResponse(BaseModel):
-    status: str
-    database: str
-
-
-# Lifespan context manager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Application lifespan: startup and shutdown."""
     # Startup
-    logger.info("Starting Content Extractor Service")
-    try:
-        await get_db_connection()
-        logger.info("Database connected")
-    except Exception as e:
-        logger.error(f"Failed to connect to database: {e}")
+    logger.info("service_starting", port=settings.SERVICE_PORT)
+    await db.connect()
+    logger.info("service_started")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down Content Extractor Service")
-    await close_db_connection()
+    logger.info("service_stopping")
+    await db.disconnect()
+    logger.info("service_stopped")
 
 
-# FastAPI app
 app = FastAPI(
     title="Content Extractor Service",
-    description="YouTube content extraction with RAG chunking",
+    description="Universal content extraction with yt-dlp (YouTube + other platforms)",
     version="2.0.0",
     lifespan=lifespan
 )
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint."""
+    try:
+        # Check database connection
+        if db.pool:
+            await db.pool.fetchval("SELECT 1")
+            db_status = "connected"
+        else:
+            db_status = "disconnected"
+
+        return {
+            "status": "healthy",
+            "service": "content_extractor",
+            "version": "2.0.0",
+            "database": db_status
+        }
+    except Exception as e:
+        logger.error("health_check_failed", error=str(e))
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unhealthy",
+                "error": str(e)
+            }
+        )
+
+
 @app.post("/extract", response_model=ExtractionResponse)
 async def extract_content(request: ExtractionRequest):
     """
-    Extract content from URL and store with chunks.
+    Extract content from URL.
 
-    Phase 1: YouTube only with chapter-based chunking.
+    Automatically detects best strategy:
+    - YouTube with transcript → metadata + transcript + chunks
+    - YouTube without transcript → metadata + audio file
+    - Other platforms → metadata + audio file
+
+    Caching:
+    - Checks database before extraction
+    - Returns cached result if URL already processed
     """
     try:
-        # Initialize components
-        extractor = YouTubeExtractor()
-        db_pool = await get_db_connection()
-        repo = ContentRepository(db_pool)
-
-        # Extract content
-        logger.info(f"Extracting content from: {request.url}")
-        extraction_result = await extractor.extract(
-            str(request.url),
-            preferred_languages=[request.language, 'en']
-        )
-
-        if extraction_result.status != ExtractionStatus.SUCCESS:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Extraction failed: {extraction_result.error_message}"
-            )
-
-        video_info = extraction_result.video_info
-        transcript_segments = extraction_result.transcript_segments
-
-        # Prepare metadata
-        metadata = {
-            'title': video_info.title,
-            'channel': video_info.channel,
-            'duration': video_info.duration,
-            'description': video_info.description,
-            'language': extraction_result.detected_language,
-            'chapters': video_info.chapters
-        }
-
-        # Store original content
-        content_id = await repo.store_content(
-            url=str(request.url),
-            content=extraction_result.content,
-            content_type='youtube',
-            metadata=metadata,
-            extraction_method='yt-dlp',
+        logger.info(
+            "extraction_requested",
+            url=request.url[:50],
             user_id=request.user_id
         )
 
-        # Choose chunking strategy
-        chunks_data = []
-        strategy_name = "none"
-        strategy_metadata = {}
-
-        if video_info.chapters and video_info.chapters.get('has_chapters'):
-            # Try chapter-based chunking
-            chapter_chunker = ChapterBasedChunker()
-            chapters = video_info.chapters.get('chapters', [])
-
-            if chapter_chunker.should_use_chapters(chapters, video_info.duration):
-                logger.info("Using chapter-based chunking")
-                chunks = chapter_chunker.chunk_by_chapters(
-                    extraction_result.content,
-                    transcript_segments,
-                    chapters,
-                    video_info.duration
-                )
-                strategy_name = "chapter_based"
-                strategy_metadata = {
-                    'chapter_count': len(chapters),
-                    'total_chunks': len(chunks)
-                }
-                chunks_data = format_chunks_for_storage(chunks, include_chapter_title=True)
-            else:
-                logger.info("Chapters not suitable, using fixed-size chunking")
-                chunks, strategy_name, strategy_metadata = apply_fixed_size_chunking(
-                    extraction_result.content,
-                    transcript_segments,
-                    video_info.duration
-                )
-                chunks_data = format_chunks_for_storage(chunks)
-        else:
-            # No chapters, use fixed-size
-            logger.info("No chapters found, using fixed-size chunking")
-            chunks, strategy_name, strategy_metadata = apply_fixed_size_chunking(
-                extraction_result.content,
-                transcript_segments,
-                video_info.duration
-            )
-            chunks_data = format_chunks_for_storage(chunks)
-
-        # Store chunks
-        if chunks_data:
-            await repo.store_chunks(
-                content_id,
-                chunks_data,
-                strategy_name,
-                strategy_metadata
-            )
-
-        return ExtractionResponse(
-            status="success",
-            content_id=content_id,
-            platform="youtube",
-            extraction_method="yt-dlp",
-            metadata=metadata,
-            chunking={
-                'strategy': strategy_name,
-                'total_chunks': len(chunks_data),
-                **strategy_metadata
-            },
-            processing_time=extraction_result.processing_time
+        result = await extractor.extract(
+            url=request.url,
+            user_id=request.user_id,
+            language=request.language
         )
+
+        return ExtractionResponse(**result)
+
+    except ValueError as e:
+        logger.error("extraction_validation_error", error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
 
     except Exception as e:
-        logger.error(f"Extraction error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("extraction_failed", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Extraction failed: {str(e)}"
+        )
 
 
-@app.get("/content/{content_id}", response_model=ContentResponse)
+@app.get("/content/{content_id}")
 async def get_content(content_id: int):
-    """Get content and chunks by ID."""
-    try:
-        db_pool = await get_db_connection()
-        repo = ContentRepository(db_pool)
+    """
+    Get extracted content by ID.
 
-        content = await repo.get_content(content_id)
-        if not content:
+    Returns:
+        Content metadata, transcript/audio info, and chunks
+    """
+    try:
+        query = """
+            SELECT
+                oc.id,
+                oc.original_url,
+                oc.content_type,
+                oc.metadata,
+                oc.raw_content,
+                oc.audio_file_path,
+                oc.extraction_method,
+                oc.created_at,
+                (
+                    SELECT json_agg(
+                        json_build_object(
+                            'index', chunk_index,
+                            'text', chunk_text,
+                            'start_timestamp', start_timestamp,
+                            'end_timestamp', end_timestamp,
+                            'tokens', chunk_tokens
+                        ) ORDER BY chunk_index
+                    )
+                    FROM content_chunks
+                    WHERE content_id = oc.id
+                ) as chunks
+            FROM original_content oc
+            WHERE oc.id = $1
+        """
+
+        row = await db.pool.fetchrow(query, content_id)
+
+        if not row:
             raise HTTPException(status_code=404, detail="Content not found")
 
-        chunks = await repo.get_chunks(content_id)
-
-        return ContentResponse(
-            content_id=content_id,
-            url=content['original_url'],
-            platform=content['content_type'],
-            content=content['raw_content'],
-            metadata=content['metadata'] if isinstance(content['metadata'], dict) else {},
-            chunks=chunks
-        )
+        return {
+            "content_id": row['id'],
+            "url": row['original_url'],
+            "platform": row['content_type'],
+            "metadata": row['metadata'],
+            "has_transcript": bool(row['raw_content']),
+            "has_audio": bool(row['audio_file_path']),
+            "transcript_length": len(row['raw_content']) if row['raw_content'] else None,
+            "audio_file": row['audio_file_path'],
+            "extraction_method": row['extraction_method'],
+            "created_at": row['created_at'].isoformat(),
+            "chunks": row['chunks'] or []
+        }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting content: {e}")
+        logger.error("content_fetch_failed", error=str(e), content_id=content_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint."""
+@app.get("/stats")
+async def get_stats():
+    """Get extraction statistics."""
     try:
-        db_pool = await get_db_connection()
-        async with db_pool.acquire() as conn:
-            await conn.fetchval("SELECT 1")
+        query = """
+            SELECT
+                COUNT(*) as total_content,
+                COUNT(*) FILTER (WHERE raw_content IS NOT NULL) as with_transcript,
+                COUNT(*) FILTER (WHERE audio_file_path IS NOT NULL) as with_audio,
+                COUNT(DISTINCT content_type) as platforms,
+                (SELECT COUNT(*) FROM content_chunks) as total_chunks
+            FROM original_content
+        """
 
-        return HealthResponse(status="healthy", database="connected")
+        row = await db.pool.fetchrow(query)
+
+        return {
+            "total_content": row['total_content'],
+            "with_transcript": row['with_transcript'],
+            "with_audio": row['with_audio'],
+            "platforms": row['platforms'],
+            "total_chunks": row['total_chunks']
+        }
+
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return HealthResponse(status="unhealthy", database="disconnected")
+        logger.error("stats_fetch_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=settings.SERVICE_PORT,
+        log_level=settings.LOG_LEVEL.lower(),
+        reload=False
+    )

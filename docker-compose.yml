@@ -55,9 +55,9 @@ services:
   #     - sambot_network
   #   restart: unless-stopped
 
-  # Content Extractor Service v2 (Universal: yt-dlp based)
+  # Content Extractor Service (Universal: yt-dlp based)
   content_extractor:
-    build: ./services/content_extractor_v2
+    build: ./services/content_extractor
     container_name: sambot_v2_content_extractor
     environment:
       DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
