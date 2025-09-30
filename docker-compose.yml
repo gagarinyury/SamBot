@@ -65,8 +65,10 @@ services:
       AUTO_CLEANUP_DAYS: 7
       MAX_AUDIO_QUALITY: 192
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      COOKIES_FILE: /app/cookies.txt
     volumes:
       - audio_storage:/app/audio_storage
+      - ./cookies.txt:/app/cookies.txt
     depends_on:
       postgres:
         condition: service_healthy

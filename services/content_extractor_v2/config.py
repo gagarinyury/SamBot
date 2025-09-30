@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     MAX_AUDIO_QUALITY: int = 192  # kbps
     SOCKET_TIMEOUT: int = 30
     PREFERRED_AUDIO_FORMAT: str = "mp3"
+    COOKIES_FILE: str = ""  # Path to cookies file (for Instagram, etc.)
 
     # Chunking
     DEFAULT_CHUNK_SIZE: int = 500  # tokens

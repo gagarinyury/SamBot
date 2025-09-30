@@ -15,7 +15,7 @@ class ContentMetadata(BaseModel):
     """Metadata extracted from content."""
     title: str
     channel: Optional[str] = None
-    duration: Optional[int] = None  # seconds
+    duration: Optional[float] = None  # seconds (can be fractional)
     description: Optional[str] = None
     language: Optional[str] = None
     platform: str

@@ -142,6 +142,11 @@ class ContentExtractor:
             'socket_timeout': settings.SOCKET_TIMEOUT,
         }
 
+        # Add cookies if available (for Instagram, etc.)
+        if hasattr(settings, 'COOKIES_FILE') and settings.COOKIES_FILE:
+            if os.path.exists(settings.COOKIES_FILE):
+                ydl_opts['cookiefile'] = settings.COOKIES_FILE
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -335,6 +340,11 @@ class ContentExtractor:
                 'preferredquality': str(settings.MAX_AUDIO_QUALITY),
             }],
         }
+
+        # Add cookies if available
+        if hasattr(settings, 'COOKIES_FILE') and settings.COOKIES_FILE:
+            if os.path.exists(settings.COOKIES_FILE):
+                ydl_opts['cookiefile'] = settings.COOKIES_FILE
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
