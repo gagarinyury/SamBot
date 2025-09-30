@@ -55,14 +55,18 @@ services:
   #     - sambot_network
   #   restart: unless-stopped
 
-  # Content Extractor Service (Phase 2.1: YouTube)
-  youtube_extractor:
-    build: ./services/content_extractor
-    container_name: sambot_v2_youtube_extractor
+  # Content Extractor Service v2 (Universal: yt-dlp based)
+  content_extractor:
+    build: ./services/content_extractor_v2
+    container_name: sambot_v2_content_extractor
     environment:
       DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
+      AUDIO_STORAGE_PATH: /app/audio_storage
+      AUTO_CLEANUP_DAYS: 7
+      MAX_AUDIO_QUALITY: 192
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
+    volumes:
+      - audio_storage:/app/audio_storage
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,6 +120,8 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  audio_storage:
     driver: local
 
 networks:
