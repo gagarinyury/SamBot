@@ -10,6 +10,12 @@
 
 **🎯 Качество.** Структурированные конспекты с emoji, markdown и ключевыми выводами. RAG система для точных ответов на вопросы.
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-required-blue.svg)](https://www.docker.com/)
+
+**📖 [English Documentation](README_EN.md)** | **⭐ Star us on GitHub!**
+
 ## 🎯 Что умеет (реально работает)
 
 - ✅ **Извлечение контента** из YouTube видео (субтитры + Whisper для аудио)
