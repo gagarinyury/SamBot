@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SamBot V2 - AI Video Analysis</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --primary-light: #818cf8;
+            --primary-dark: #4f46e5;
+            --secondary: #8b5cf6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --error: #ef4444;
+            --bg-light: #ffffff;
+            --bg-dark: #0f172a;
+            --surface-light: rgba(255, 255, 255, 0.8);
+            --surface-dark: rgba(15, 23, 42, 0.8);
+            --text-light: #1e293b;
+            --text-dark: #f1f5f9;
+            --hint-light: #64748b;
+            --hint-dark: #94a3b8;
+            --border-light: rgba(0, 0, 0, 0.1);
+            --border-dark: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: var(--text-dark);
+        }
+
+        body.light {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: var(--text-light);
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* Glassmorphism Card */
+        .glass-card {
+            background: var(--surface-dark);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-radius: 24px;
+            border: 1px solid var(--border-dark);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            padding: 32px;
+            margin-bottom: 20px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body.light .glass-card {
+            background: var(--surface-light);
+            border: 1px solid var(--border-light);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+        }
+
+        .glass-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header .logo {
+            font-size: 64px;
+            margin-bottom: 16px;
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .header h1 {
+            font-size: 36px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, rgba(255,255,255,0.8) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        body.light .header h1 {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.8;
+        }
+
+        /* Theme Toggle */
+        .theme-toggle {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 48px;
+            height: 48px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .theme-toggle:hover {
+            transform: scale(1.1) rotate(15deg);
+        }
+
+        /* Input Group */
+        .input-wrapper {
+            position: relative;
+            margin-bottom: 24px;
+        }
+
+        .input-wrapper input {
+            width: 100%;
+            padding: 18px 60px 18px 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            color: inherit;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+
+        body.light .input-wrapper input {
+            background: rgba(0, 0, 0, 0.03);
+            border: 2px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .input-wrapper input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+        }
+
+        body.light .input-wrapper input:focus {
+            background: rgba(255, 255, 255, 0.8);
+        }
+
+        .input-wrapper input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        body.light .input-wrapper input::placeholder {
+            color: rgba(0, 0, 0, 0.4);
+        }
+
+        /* Submit Button */
+        .submit-btn {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 48px;
+            height: 48px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .submit-btn:active:not(:disabled) {
+            transform: translateY(-50%) scale(0.95);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .submit-btn .spinner {
+            display: none;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .submit-btn.loading .spinner {
+            display: block;
+        }
+
+        .submit-btn.loading::before {
+            content: '';
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Progress Section */
+        .progress-section {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .progress-section.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        body.light .progress-bar-container {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%);
+            width: 0%;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+
+        body.light .status-badge {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+
+        /* Log Container */
+        .log-container {
+            max-height: 300px;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .log-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .log-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+
+        .log-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        .log-entry {
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            border-left: 3px solid var(--primary);
+            animation: slideIn 0.3s ease-out;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        body.light .log-entry {
+            background: rgba(0, 0, 0, 0.02);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry .time {
+            color: var(--hint-dark);
+            margin-right: 8px;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        body.light .log-entry .time {
+            color: var(--hint-light);
+        }
+
+        /* Result Section */
+        .result-section {
+            display: none;
+            margin-top: 32px;
+        }
+
+        .result-section.active {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+
+        .section-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* Video Preview */
+        .video-preview {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%; /* 16:9 */
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 24px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .video-preview iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* Metadata Grid */
+        .metadata-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metadata-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 16px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        body.light .metadata-item {
+            background: rgba(0, 0, 0, 0.02);
+        }
+
+        .metadata-item .label {
+            font-size: 12px;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .metadata-item .value {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .action-btn {
+            padding: 16px 24px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .action-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.4);
+        }
+
+        .action-btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .action-btn.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        body.light .action-btn.secondary {
+            background: rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: var(--text-light);
+        }
+
+        /* Summary Section */
+        .summary-section {
+            display: none;
+            margin-top: 32px;
+        }
+
+        .summary-section.active {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+
+        .summary-content {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 24px;
+            border-radius: 16px;
+            white-space: pre-wrap;
+            line-height: 1.8;
+            font-size: 15px;
+        }
+
+        body.light .summary-content {
+            background: rgba(0, 0, 0, 0.02);
+        }
+
+        .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 20px;
+            background: var(--primary);
+            animation: blink 1s step-end infinite;
+            margin-left: 2px;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* RAG Section */
+        .rag-section {
+            display: none;
+            margin-top: 32px;
+        }
+
+        .rag-section.active {
+            display: block;
+            animation: fadeIn 0.5s;
+        }
+
+        .chat-container {
+            max-height: 500px;
+            overflow-y: auto;
+            margin-bottom: 16px;
+            padding-right: 8px;
+        }
+
+        .chat-message {
+            margin-bottom: 16px;
+            animation: slideIn 0.3s;
+        }
+
+        .chat-message.user {
+            text-align: right;
+        }
+
+        .chat-bubble {
+            display: inline-block;
+            max-width: 80%;
+            padding: 14px 18px;
+            border-radius: 16px;
+            line-height: 1.6;
+        }
+
+        .chat-message.user .chat-bubble {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-message.assistant .chat-bubble {
+            background: rgba(255, 255, 255, 0.1);
+            border-bottom-left-radius: 4px;
+        }
+
+        body.light .chat-message.assistant .chat-bubble {
+            background: rgba(0, 0, 0, 0.05);
+        }
+
+        .question-input-wrapper {
+            position: relative;
+            margin-top: 16px;
+        }
+
+        .question-input-wrapper input {
+            width: 100%;
+            padding: 16px 60px 16px 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 14px;
+            color: inherit;
+            font-size: 15px;
+        }
+
+        body.light .question-input-wrapper input {
+            background: rgba(0, 0, 0, 0.03);
+            border: 2px solid rgba(0, 0, 0, 0.1);
+        }
+
+        .ask-btn {
+            position: absolute;
+            right: 6px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+        }
+
+        /* Error Message */
+        .error-message {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-left: 4px solid var(--error);
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 16px;
+            color: #fca5a5;
+            animation: shake 0.5s;
+        }
+
+        body.light .error-message {
+            background: rgba(239, 68, 68, 0.05);
+            color: var(--error);
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        /* Loading States */
+        .skeleton {
+            background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
+            background-size: 200% 100%;
+            animation: skeleton 1.5s infinite;
+            border-radius: 8px;
+        }
+
+        @keyframes skeleton {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                padding: 16px;
+            }
+
+            .glass-card {
+                padding: 24px;
+            }
+
+            .header h1 {
+                font-size: 28px;
+            }
+
+            .section-title {
+                font-size: 20px;
+            }
+
+            .metadata-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .action-buttons {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="theme-toggle" onclick="toggleTheme()">🌙</div>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">🤖</div>
+            <h1>SamBot V2</h1>
+            <p>AI-Powered Video Analysis with RAG & Summarization</p>
+        </div>
+
+        <!-- Main Card -->
+        <div class="glass-card">
+            <h2 class="section-title">📺 Extract Video Content</h2>
+
+            <div class="input-wrapper">
+                <input
+                    type="text"
+                    id="videoUrl"
+                    placeholder="Paste YouTube URL here..."
+                    onkeypress="if(event.key === 'Enter') extractVideo()"
+                >
+                <button class="submit-btn" onclick="extractVideo()">
+                    <span>🚀</span>
+                    <div class="spinner"></div>
+                </button>
+            </div>
+
+            <!-- Progress Section -->
+            <div class="progress-section" id="progressSection">
+                <div class="status-badge">
+                    <div class="status-dot"></div>
+                    <span id="statusText">Processing...</span>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+
+                <div class="log-container" id="logContainer"></div>
+            </div>
+        </div>
+
+        <!-- Result Section -->
+        <div class="result-section" id="resultSection">
+            <div class="glass-card">
+                <h2 class="section-title">✅ Extraction Complete</h2>
+
+                <div id="videoPreview"></div>
+
+                <div class="metadata-grid" id="metadataGrid"></div>
+
+                <div class="action-buttons">
+                    <button class="action-btn" id="generateSummaryBtn" onclick="generateSummary()">
+                        📊 Create Summary
+                    </button>
+                    <button class="action-btn secondary" id="askQuestionBtn" onclick="toggleRAG()">
+                        💬 Ask Question
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Section -->
+        <div class="summary-section" id="summarySection">
+            <div class="glass-card">
+                <h2 class="section-title">📝 AI Summary</h2>
+                <div class="summary-content" id="summaryContent"></div>
+            </div>
+        </div>
+
+        <!-- RAG Section -->
+        <div class="rag-section" id="ragSection">
+            <div class="glass-card">
+                <h2 class="section-title">💬 Ask Questions (RAG)</h2>
+
+                <div class="chat-container" id="chatContainer"></div>
+
+                <div class="question-input-wrapper">
+                    <input
+                        type="text"
+                        id="questionInput"
+                        placeholder="Ask anything about the video..."
+                        onkeypress="if(event.key === 'Enter') askQuestion()"
+                    >
+                    <button class="ask-btn" onclick="askQuestion()">💭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentContentId = null;
+        let isDarkMode = true;
+
+        // Theme Toggle
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            document.body.classList.toggle('light');
+            document.querySelector('.theme-toggle').textContent = isDarkMode ? '🌙' : '☀️';
+        }
+
+        // Add log entry
+        function addLog(message) {
+            const logContainer = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            entry.innerHTML = `<span class="time">${time}</span>${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Update progress
+        function updateProgress(percent) {
+            document.getElementById('progressBar').style.width = percent + '%';
+        }
+
+        // Extract Video
+        async function extractVideo() {
+            const url = document.getElementById('videoUrl').value.trim();
+            if (!url) {
+                alert('Please enter a YouTube URL');
+                return;
+            }
+
+            // Reset UI
+            document.getElementById('progressSection').classList.add('active');
+            document.getElementById('resultSection').classList.remove('active');
+            document.getElementById('summarySection').classList.remove('active');
+            document.getElementById('ragSection').classList.remove('active');
+            document.getElementById('logContainer').innerHTML = '';
+
+            const submitBtn = document.querySelector('.submit-btn');
+            submitBtn.classList.add('loading');
+            submitBtn.disabled = true;
+
+            updateProgress(0);
+
+            try {
+                const response = await fetch('/extract/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = ''; // Buffer for incomplete lines
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    // Decode chunk and add to buffer
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Split by newlines but keep incomplete line in buffer
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep last incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                handleExtractionEvent(data);
+                            } catch (e) {
+                                console.error('JSON parse error in extraction:', e, 'Line:', line);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                addLog(`❌ Error: ${error.message}`);
+                showError(error.message);
+            } finally {
+                submitBtn.classList.remove('loading');
+                submitBtn.disabled = false;
+            }
+        }
+
+        // Handle extraction events
+        function handleExtractionEvent(data) {
+            const { status, message, result, content_id } = data;
+
+            if (message) {
+                addLog(message);
+            }
+
+            // Update progress based on status
+            const progressMap = {
+                'started': 5,
+                'connecting': 10,
+                'metadata_received': 20,
+                'metadata_display': 25,
+                'downloading_audio': 30,
+                'downloading_subtitles': 30,
+                'processing': 40,
+                'whisper_done': 80,
+                'extraction_completed': 85,
+                'creating_chunks': 90,
+                'chunks_created': 95,
+                'completed': 100
+            };
+
+            if (progressMap[status]) {
+                updateProgress(progressMap[status]);
+            }
+
+            // Update status text
+            if (status === 'processing') {
+                document.getElementById('statusText').textContent = 'Processing (this may take 1-2 min)...';
+            } else if (status === 'downloading_subtitles') {
+                document.getElementById('statusText').textContent = 'Downloading subtitles...';
+            }
+
+            // Handle completion
+            if (status === 'completed' && result) {
+                currentContentId = result.content_id;
+                displayResults(result);
+            }
+
+            if (status === 'error') {
+                showError(message);
+            }
+        }
+
+        // Display results
+        function displayResults(result) {
+            const resultSection = document.getElementById('resultSection');
+            resultSection.classList.add('active');
+
+            // Video preview
+            const videoId = extractVideoId(document.getElementById('videoUrl').value);
+            if (videoId) {
+                document.getElementById('videoPreview').innerHTML = `
+                    <div class="video-preview">
+                        <iframe src="https://www.youtube.com/embed/${videoId}" allowfullscreen></iframe>
+                    </div>
+                `;
+            }
+
+            // Metadata
+            const metadata = result.metadata || {};
+            const metadataHtml = `
+                <div class="metadata-item">
+                    <div class="label">Duration</div>
+                    <div class="value">${formatDuration(metadata.duration || 0)}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="label">Strategy</div>
+                    <div class="value">${result.strategy === 'transcript' ? '📥 Subtitles' : '🎧 Whisper'}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="label">Chunks</div>
+                    <div class="value">${result.total_chunks || 0}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="label">Processing Time</div>
+                    <div class="value">${Math.round(result.processing_time || 0)}s</div>
+                </div>
+            `;
+            document.getElementById('metadataGrid').innerHTML = metadataHtml;
+        }
+
+        // Generate Summary
+        async function generateSummary() {
+            if (!currentContentId) return;
+
+            const summarySection = document.getElementById('summarySection');
+            summarySection.classList.add('active');
+
+            const summaryContent = document.getElementById('summaryContent');
+            summaryContent.innerHTML = 'Generating summary<span class="typing-cursor"></span>';
+
+            const btn = document.getElementById('generateSummaryBtn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Generating...';
+
+            // Timeout protection: if no events for 90 seconds, assume error
+            let lastEventTime = Date.now();
+            let streamCompleted = false;
+
+            const timeoutCheck = setInterval(() => {
+                if (!streamCompleted && Date.now() - lastEventTime > 90000) {
+                    clearInterval(timeoutCheck);
+                    summaryContent.innerHTML = '⚠️ Streaming timeout. Summary may be generating in background. Try refreshing the page in 1 minute or click "Create Summary" again.';
+                    btn.disabled = false;
+                    btn.textContent = '📊 Create Summary';
+                }
+            }, 5000);
+
+            try {
+                const response = await fetch(`/summarize/stream/${currentContentId}`, {
+                    method: 'POST'
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = ''; // Buffer for incomplete lines
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    // Decode chunk and add to buffer
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Split by newlines but keep incomplete line in buffer
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep last incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            lastEventTime = Date.now(); // Update last event time
+
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                if (data.status === 'cached') {
+                                    // Summary already exists - show it immediately
+                                    summaryContent.textContent = data.summary;
+                                    streamCompleted = true;
+                                } else if (data.status === 'generating') {
+                                    summaryContent.innerHTML = data.text + '<span class="typing-cursor"></span>';
+                                } else if (data.status === 'completed') {
+                                    summaryContent.textContent = data.summary;
+                                    streamCompleted = true;
+                                } else if (data.status === 'error') {
+                                    summaryContent.textContent = `❌ Error: ${data.message}`;
+                                    streamCompleted = true;
+                                }
+                            } catch (e) {
+                                console.error('JSON parse error:', e, 'Line:', line);
+                                // Skip malformed JSON
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                summaryContent.textContent = `Error: ${error.message}`;
+                streamCompleted = true;
+            } finally {
+                clearInterval(timeoutCheck);
+                btn.disabled = false;
+                btn.textContent = '📊 Create Summary';
+            }
+        }
+
+        // Toggle RAG
+        function toggleRAG() {
+            const ragSection = document.getElementById('ragSection');
+            ragSection.classList.toggle('active');
+        }
+
+        // Ask Question
+        async function askQuestion() {
+            const input = document.getElementById('questionInput');
+            const question = input.value.trim();
+            if (!question || !currentContentId) return;
+
+            const chatContainer = document.getElementById('chatContainer');
+
+            // Add user message
+            const userMsg = document.createElement('div');
+            userMsg.className = 'chat-message user';
+            userMsg.innerHTML = `<div class="chat-bubble">${question}</div>`;
+            chatContainer.appendChild(userMsg);
+
+            input.value = '';
+
+            // Add loading assistant message
+            const assistantMsg = document.createElement('div');
+            assistantMsg.className = 'chat-message assistant';
+            assistantMsg.innerHTML = `<div class="chat-bubble">Thinking<span class="typing-cursor"></span></div>`;
+            chatContainer.appendChild(assistantMsg);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+
+            try {
+                const response = await fetch('/rag/ask/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question, content_id: currentContentId })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = ''; // Buffer for incomplete lines
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    // Decode chunk and add to buffer
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // Split by newlines but keep incomplete line in buffer
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || ''; // Keep last incomplete line in buffer
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+
+                                if (data.status === 'generating') {
+                                    assistantMsg.innerHTML = `<div class="chat-bubble">${data.text}<span class="typing-cursor"></span></div>`;
+                                } else if (data.status === 'completed') {
+                                    assistantMsg.innerHTML = `<div class="chat-bubble">${data.answer}</div>`;
+                                }
+                                chatContainer.scrollTop = chatContainer.scrollHeight;
+                            } catch (e) {
+                                console.error('JSON parse error in RAG:', e, 'Line:', line);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                assistantMsg.innerHTML = `<div class="chat-bubble">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Helpers
+        function extractVideoId(url) {
+            const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+            return match ? match[1] : null;
+        }
+
+        function formatDuration(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            document.querySelector('.glass-card').appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+    </script>
+</body>
+</html>
