@@ -23,7 +23,9 @@ structlog==24.1.0
 # Utilities
 python-dotenv==1.0.1
 
-# Whisper for audio transcription
-openai-whisper>=20231117
-torch>=2.0.0
-numba==0.60.0  # Fix for whisper compatibility
+# faster-whisper for 4x speed improvement (CTranslate2-optimized)
+faster-whisper==1.1.0
+
+# Background tasks
+redis==5.0.1
+rq==1.16.2

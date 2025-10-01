@@ -113,3 +113,5 @@ secrets/
 # Generated files
 generated/
 output/cookies.txt
+youtube_cookies.txt
+.env

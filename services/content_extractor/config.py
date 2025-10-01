@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     PREFERRED_AUDIO_FORMAT: str = "mp3"
     COOKIES_FILE: str = ""  # Path to cookies file (for Instagram, etc.)
 
+    # YouTube Data API v3 (for metadata without rate limiting)
+    YOUTUBE_API_KEY: str = ""  # YouTube Data API v3 key
+
     # Chunking
     DEFAULT_CHUNK_SIZE: int = 500  # tokens
     DEFAULT_CHUNK_OVERLAP: int = 50  # tokens

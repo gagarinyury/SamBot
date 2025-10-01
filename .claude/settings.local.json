@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(ollama list:*)",
+      "Bash(ollama pull:*)",
+      "Bash(curl -s \"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=dQw4w9WgXcQ&key=AIzaSyDBM_sqCyuq3RIAtNaRqYczkuYKrzFWYYo\")",
+      "Bash(python3:*)",
+      "Bash(curl:*)",
+      "Bash(psql:*)",
+      "Bash(grep:*)",
+      "Bash(docker system:*)",
+      "Bash(docker volume ls:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker volume inspect:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

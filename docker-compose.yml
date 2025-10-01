@@ -66,9 +66,11 @@ services:
       MAX_AUDIO_QUALITY: 192
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       COOKIES_FILE: /app/cookies.txt
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
     volumes:
       - audio_storage:/app/audio_storage
       - ./cookies.txt:/app/cookies.txt
+      - whisper_models:/root/.cache/huggingface
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,45 +80,92 @@ services:
       - sambot_network
     restart: unless-stopped
 
-  # AI Service (Docker Model Runner wrapper) - Phase 3
-  # ai_service:
-  #   build: ./services/ai_service
-  #   container_name: sambot_v2_ai_service
-  #   environment:
-  #     DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
-  #     MODEL_RUNNER_URL: http://model-runner.docker.internal/engines/v1
-  #     MODEL_NAME: ${MODEL_NAME:-ai/qwen2.5:3B-Q4_K_M}
-  #     EMBEDDING_MODEL: ${EMBEDDING_MODEL:-ai/qwen2.5:3B-Q4_K_M}
-  #     EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-1536}
-  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
-  #     ENVIRONMENT: ${ENVIRONMENT:-development}
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   ports:
-  #     - "8002:8000"
-  #   networks:
-  #     - sambot_network
-  #   restart: unless-stopped
+  # Summarizer Service - AI-powered content summarization
+  # Uses host Ollama on localhost:11434
+  summarizer:
+    build: ./services/summarizer
+    container_name: sambot_v2_summarizer
+    environment:
+      DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
+      OLLAMA_URL: http://host.docker.internal:11434
+      MODEL_NAME: ${SUMMARIZER_MODEL:-qwen2.5:7b-instruct-q4_K_M}
+      MAX_SUMMARY_LENGTH: ${MAX_SUMMARY_LENGTH:-500}
+      TEMPERATURE: ${TEMPERATURE:-0.3}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    networks:
+      - sambot_network
+    restart: unless-stopped
 
-  # Web Monitor UI - Phase 4
-  # web_monitor:
-  #   build: ./services/web_monitor
-  #   container_name: sambot_v2_web_monitor
-  #   environment:
-  #     DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
-  #     YOUTUBE_EXTRACTOR_URL: http://youtube_extractor:8000
-  #     AI_SERVICE_URL: http://ai_service:8000
-  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
-  #     ENVIRONMENT: ${ENVIRONMENT:-development}
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #   ports:
-  #     - "8080:8000"
-  #   networks:
-  #     - sambot_network
-  #   restart: unless-stopped
+  # RAG Service - Semantic search and Q&A over transcripts
+  rag_service:
+    build: ./services/rag_service
+    container_name: sambot_v2_rag
+    environment:
+      DATABASE_URL: postgresql://sambot:${DB_PASSWORD:-sambot_secure_pass_change_me}@postgres:5432/sambot_v2
+      OLLAMA_URL: http://host.docker.internal:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b-instruct-q4_K_M}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+      TOP_K_RESULTS: ${TOP_K_RESULTS:-3}
+      SIMILARITY_THRESHOLD: ${SIMILARITY_THRESHOLD:-0.7}
+      TEMPERATURE: ${TEMPERATURE:-0.3}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8003:8000"
+    networks:
+      - sambot_network
+    restart: unless-stopped
+
+  # Background Worker - Auto-embedding and summarization pipeline
+  worker:
+    build: ./services/worker
+    container_name: sambot_v2_worker
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RAG_SERVICE_URL: http://rag_service:8000
+      SUMMARIZER_URL: http://summarizer:8000
+      WORKER_QUEUES: embedding,summarization,default
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      redis:
+        condition: service_healthy
+      rag_service:
+        condition: service_started
+      summarizer:
+        condition: service_started
+    networks:
+      - sambot_network
+    restart: unless-stopped
+
+  # Web UI - Simple interface for content extraction
+  web_ui:
+    build: ./services/web_ui
+    container_name: sambot_v2_web_ui
+    environment:
+      EXTRACTOR_URL: http://content_extractor:8000
+      SUMMARIZER_URL: http://summarizer:8000
+      RAG_SERVICE_URL: http://rag_service:8000
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      FLASK_DEBUG: ${FLASK_DEBUG:-1}
+    volumes:
+      - ./services/web_ui:/app
+    depends_on:
+      - content_extractor
+      - summarizer
+    ports:
+      - "8080:8080"
+    networks:
+      - sambot_network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
@@ -124,6 +173,8 @@ volumes:
   redis_data:
     driver: local
   audio_storage:
+    driver: local
+  whisper_models:
     driver: local
 
 networks:

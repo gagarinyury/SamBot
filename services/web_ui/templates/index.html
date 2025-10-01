@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SamBot Content Extractor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .input-section {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 15px;
+            font-size: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus {
+            border-color: #667eea;
+        }
+
+        button {
+            padding: 15px 40px;
+            font-size: 16px;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .results {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .logs-section {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            margin-bottom: 20px;
+        }
+
+        .logs-section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .logs {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+        }
+
+        .log-info { color: #4ec9b0; }
+        .log-error { color: #f48771; }
+        .log-warning { color: #dcdcaa; }
+
+        .box {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .box h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .metadata-item {
+            margin-bottom: 12px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+
+        .metadata-item strong {
+            color: #764ba2;
+            display: inline-block;
+            min-width: 120px;
+        }
+
+        .transcript {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            line-height: 1.8;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-size: 18px;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #c33;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-cached {
+            background: #cce5ff;
+            color: #004085;
+        }
+
+        @media (max-width: 768px) {
+            .results {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 SamBot Content Extractor</h1>
+
+        <div class="input-section">
+            <div class="input-group">
+                <input
+                    type="text"
+                    id="urlInput"
+                    placeholder="Paste YouTube, TikTok, Instagram URL here..."
+                    autofocus
+                >
+                <button id="extractBtn" onclick="extractContent()">Extract</button>
+            </div>
+        </div>
+
+        <div class="logs-section" id="logsSection" style="display: none;">
+            <h2>📋 Processing Logs</h2>
+            <div id="logs" class="logs"></div>
+        </div>
+
+        <div id="results" class="results" style="display: none;">
+            <div class="box">
+                <h2>📊 Metadata</h2>
+                <div id="metadata"></div>
+            </div>
+
+            <div class="box">
+                <h2>📝 Transcript</h2>
+                <div id="transcript" class="transcript"></div>
+            </div>
+        </div>
+
+        <div id="summarySection" class="box" style="display: none; margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 style="margin: 0;">🤖 AI Summary</h2>
+                <button id="summarizeBtn" onclick="generateSummary()" style="padding: 10px 25px;">
+                    Generate Summary
+                </button>
+            </div>
+            <div id="summaryContent" style="display: none;">
+                <div id="summaryText" class="transcript" style="max-height: 600px;"></div>
+            </div>
+            <div id="summaryLoading" class="loading" style="display: none; padding: 20px;">
+                Generating summary with Qwen 2.5 3B... This may take 10-30 seconds.
+            </div>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            Processing... This may take up to 3 minutes for long videos.
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        const urlInput = document.getElementById('urlInput');
+        const extractBtn = document.getElementById('extractBtn');
+        const results = document.getElementById('results');
+        const metadata = document.getElementById('metadata');
+        const transcript = document.getElementById('transcript');
+        const loading = document.getElementById('loading');
+        const error = document.getElementById('error');
+        const logsSection = document.getElementById('logsSection');
+        const logs = document.getElementById('logs');
+        const summarySection = document.getElementById('summarySection');
+        const summaryBtn = document.getElementById('summarizeBtn');
+        const summaryContent = document.getElementById('summaryContent');
+        const summaryText = document.getElementById('summaryText');
+        const summaryLoading = document.getElementById('summaryLoading');
+
+        let logBuffer = [];
+        let currentContentId = null;
+
+        // Allow Enter key to submit
+        urlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                extractContent();
+            }
+        });
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = `log-${type}`;
+            const entry = `<div class="log-entry ${className}">[${timestamp}] ${message}</div>`;
+            logBuffer.push(entry);
+            logs.innerHTML = logBuffer.join('');
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        async function extractContent() {
+            const url = urlInput.value.trim();
+
+            if (!url) {
+                showError('Please enter a URL');
+                return;
+            }
+
+            // Clear and show logs
+            logBuffer = [];
+            logs.innerHTML = '';
+            logsSection.style.display = 'block';
+
+            // Hide previous results
+            results.style.display = 'none';
+            error.style.display = 'none';
+            loading.style.display = 'block';
+            extractBtn.disabled = true;
+
+            addLog('🚀 Starting extraction for: ' + url);
+            addLog('📡 Sending request to content extractor...');
+
+            try {
+                const startTime = Date.now();
+
+                const response = await fetch('/extract', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url })
+                });
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+                addLog(`⏱️ Request completed in ${elapsed}s`);
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Extraction failed');
+                }
+
+                if (data.status === 'cached') {
+                    addLog('💾 Content found in cache!', 'info');
+                } else {
+                    addLog('✅ Extraction successful!', 'info');
+                    addLog(`🎯 Strategy: ${data.strategy}`, 'info');
+                    addLog(`🔧 Method: ${data.extraction_method}`, 'info');
+                }
+
+                if (data.has_transcript) {
+                    addLog(`📝 Transcript: ${data.transcript_length} chars, ${data.total_chunks} chunks`, 'info');
+                }
+
+                if (data.has_audio) {
+                    addLog(`🎵 Audio: ${data.audio_file}`, 'info');
+                }
+
+                displayResults(data);
+
+            } catch (err) {
+                addLog(`❌ Error: ${err.message}`, 'error');
+                showError(err.message);
+            } finally {
+                loading.style.display = 'none';
+                extractBtn.disabled = false;
+            }
+        }
+
+        function displayResults(data) {
+            // Store content ID
+            currentContentId = data.content_id;
+
+            // Metadata
+            const meta = data.metadata;
+            const statusBadge = data.status === 'cached'
+                ? '<span class="badge badge-cached">CACHED</span>'
+                : '<span class="badge badge-success">NEW</span>';
+
+            let chaptersHtml = '';
+            if (meta.chapters && meta.chapters.length > 0) {
+                chaptersHtml = `
+                <div class="metadata-item">
+                    <strong>Chapters:</strong> ${meta.chapters.length} chapters
+                    <div style="margin-top: 8px; padding-left: 10px; font-size: 13px; color: #666;">
+                        ${meta.chapters.slice(0, 5).map(ch =>
+                            `<div>${ch.timestamp} — ${ch.title}</div>`
+                        ).join('')}
+                        ${meta.chapters.length > 5 ? '<div>...</div>' : ''}
+                    </div>
+                </div>`;
+            }
+
+            metadata.innerHTML = `
+                <div class="metadata-item">
+                    <strong>Status:</strong> ${data.status}${statusBadge}
+                </div>
+                <div class="metadata-item">
+                    <strong>Content ID:</strong> ${data.content_id}
+                </div>
+                <div class="metadata-item">
+                    <strong>Strategy:</strong> ${data.strategy}
+                </div>
+                <div class="metadata-item">
+                    <strong>Method:</strong> ${data.extraction_method}
+                </div>
+                <div class="metadata-item">
+                    <strong>Platform:</strong> ${meta.platform}
+                </div>
+                <div class="metadata-item">
+                    <strong>Title:</strong> ${meta.title}
+                </div>
+                ${meta.channel ? `
+                <div class="metadata-item">
+                    <strong>Channel:</strong> ${meta.channel}
+                </div>` : ''}
+                ${meta.duration ? `
+                <div class="metadata-item">
+                    <strong>Duration:</strong> ${(meta.duration / 60).toFixed(1)} min
+                </div>` : ''}
+                ${chaptersHtml}
+                <div class="metadata-item">
+                    <strong>Transcript:</strong> ${data.has_transcript ? 'Yes' : 'No'}
+                    ${data.transcript_length ? `(${data.transcript_length} chars)` : ''}
+                </div>
+                <div class="metadata-item">
+                    <strong>Audio:</strong> ${data.has_audio ? 'Yes' : 'No'}
+                    ${data.audio_file ? `(${data.audio_file})` : ''}
+                </div>
+                <div class="metadata-item">
+                    <strong>Chunks:</strong> ${data.total_chunks}
+                </div>
+                <div class="metadata-item">
+                    <strong>Time:</strong> ${data.processing_time.toFixed(2)}s
+                </div>
+            `;
+
+            // Transcript
+            if (data.full_transcript) {
+                transcript.textContent = data.full_transcript;
+            } else {
+                transcript.textContent = 'No transcript available';
+            }
+
+            results.style.display = 'grid';
+            error.style.display = 'none';
+
+            // Show summary section and check for existing summary
+            summarySection.style.display = 'block';
+            summaryContent.style.display = 'none';
+            summaryBtn.style.display = 'inline-block';
+            checkExistingSummary();
+        }
+
+        async function checkExistingSummary() {
+            if (!currentContentId) return;
+
+            try {
+                const response = await fetch(`/summary/${currentContentId}`);
+                const data = await response.json();
+
+                if (data.summary) {
+                    displaySummary(data);
+                }
+            } catch (err) {
+                console.log('No existing summary found');
+            }
+        }
+
+        async function generateSummary() {
+            if (!currentContentId) {
+                addLog('❌ No content loaded', 'error');
+                return;
+            }
+
+            summaryLoading.style.display = 'block';
+            summaryContent.style.display = 'none';
+            summaryBtn.disabled = true;
+
+            addLog('🤖 Generating AI summary with Qwen 2.5 3B...');
+
+            try {
+                const startTime = Date.now();
+
+                const response = await fetch(`/summarize/${currentContentId}`, {
+                    method: 'POST'
+                });
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Summarization failed');
+                }
+
+                const data = await response.json();
+
+                addLog(`✅ Summary generated in ${elapsed}s!`, 'info');
+                addLog(`📊 Summary length: ${data.summary_length} chars`, 'info');
+
+                displaySummary(data);
+
+            } catch (err) {
+                addLog(`❌ Summarization error: ${err.message}`, 'error');
+                showError(`Summarization failed: ${err.message}`);
+            } finally {
+                summaryLoading.style.display = 'none';
+                summaryBtn.disabled = false;
+            }
+        }
+
+        function displaySummary(data) {
+            summaryText.innerHTML = data.summary.replace(/\n/g, '<br>');
+            summaryContent.style.display = 'block';
+            summaryBtn.textContent = 'Regenerate Summary';
+        }
+
+        function showError(message) {
+            error.textContent = `Error: ${message}`;
+            error.style.display = 'block';
+            results.style.display = 'none';
+        }
+    </script>
+</body>
+</html>

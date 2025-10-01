@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SamBot - AI Video Analysis</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-color: #ffffff;
+            --secondary-bg: #f0f0f0;
+            --text-color: #000000;
+            --hint-color: #999999;
+            --accent-color: #667eea;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            padding: 16px;
+            padding-bottom: 100px;
+            min-height: 100vh;
+        }
+
+        .header {
+            text-align: center;
+            padding: 24px 0;
+            border-bottom: 1px solid #e0e0e0;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header .emoji {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .header p {
+            font-size: 15px;
+            color: var(--hint-color);
+        }
+
+        .card {
+            background: var(--secondary-bg);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 16px;
+            padding-right: 60px;
+            border: 2px solid transparent;
+            border-radius: 12px;
+            background: var(--bg-color);
+            color: var(--text-color);
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        input[type="text"]::placeholder {
+            color: var(--hint-color);
+        }
+
+        .extract-btn {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .extract-btn:hover:not(:disabled) {
+            transform: translateY(-50%) scale(1.05);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .extract-btn:active:not(:disabled) {
+            transform: translateY(-50%) scale(0.95);
+        }
+
+        .extract-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .extract-btn.loading .spinner {
+            display: block;
+        }
+
+        .extract-btn.loading::before {
+            content: '';
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .progress-section {
+            display: none;
+        }
+
+        .progress-section.active {
+            display: block;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-color);
+            border-radius: 20px;
+            font-size: 14px;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: var(--bg-color);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 16px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .log-container {
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .log-entry {
+            padding: 8px 12px;
+            margin-bottom: 4px;
+            background: var(--bg-color);
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .log-entry .time {
+            color: var(--hint-color);
+            margin-right: 8px;
+            font-size: 11px;
+        }
+
+        .result-section, .summary-section {
+            display: none;
+        }
+
+        .result-section.active, .summary-section.active {
+            display: block;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metadata-grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .metadata-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-color);
+            border-radius: 10px;
+        }
+
+        .metadata-label {
+            font-size: 14px;
+            color: var(--hint-color);
+        }
+
+        .metadata-value {
+            font-size: 15px;
+            font-weight: 600;
+            text-align: right;
+            max-width: 60%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .action-btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 16px;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .action-btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .summary-content {
+            background: var(--bg-color);
+            padding: 20px;
+            border-radius: 12px;
+            white-space: pre-wrap;
+            line-height: 1.8;
+            font-size: 15px;
+        }
+
+        .summary-content h2 {
+            margin-top: 24px;
+            margin-bottom: 12px;
+            font-size: 18px;
+            color: #667eea;
+        }
+
+        .summary-content h2:first-child {
+            margin-top: 0;
+        }
+
+        .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 20px;
+            background: #667eea;
+            animation: blink 1s step-end infinite;
+            margin-left: 2px;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .error-message {
+            background: #fee;
+            color: #d32f2f;
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 16px;
+            border-left: 4px solid #d32f2f;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 24px;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 1000;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 12px;
+            }
+            .header h1 {
+                font-size: 24px;
+            }
+            .card {
+                padding: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="emoji">🤖</div>
+        <h1>SamBot</h1>
+        <p>AI-анализ YouTube видео с помощью GPT</p>
+    </div>
+
+    <div class="card">
+        <form id="extractForm">
+            <div class="input-group">
+                <input
+                    type="text"
+                    id="videoUrl"
+                    placeholder="Вставьте ссылку на YouTube..."
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+                <button type="submit" class="extract-btn" id="extractBtn" title="Извлечь">
+                    <div class="spinner"></div>
+                    ▶️
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card progress-section" id="progressSection">
+        <div class="status-badge">
+            <div class="status-dot"></div>
+            <span id="statusText">Обработка...</span>
+        </div>
+        <div class="progress-bar-container">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="log-container" id="logContainer"></div>
+    </div>
+
+    <div class="card result-section" id="resultSection">
+        <div class="section-title">✅ Извлечение завершено</div>
+        <div class="metadata-grid" id="metadataGrid"></div>
+        <button class="action-btn" id="summarizeBtn">📝 Создать конспект</button>
+    </div>
+
+    <div class="card summary-section" id="summarySection">
+        <div class="section-title">📝 Конспект видео</div>
+        <div class="summary-content" id="summaryContent"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Telegram init
+        let tg = null;
+        let isTelegram = false;
+        if (window.Telegram?.WebApp) {
+            tg = window.Telegram.WebApp;
+            tg.ready();
+            tg.expand();
+            isTelegram = true;
+        }
+
+        let currentContentId = null;
+
+        const form = document.getElementById('extractForm');
+        const urlInput = document.getElementById('videoUrl');
+        const extractBtn = document.getElementById('extractBtn');
+        const progressSection = document.getElementById('progressSection');
+        const resultSection = document.getElementById('resultSection');
+        const summarySection = document.getElementById('summarySection');
+        const logContainer = document.getElementById('logContainer');
+        const progressBar = document.getElementById('progressBar');
+        const statusText = document.getElementById('statusText');
+        const metadataGrid = document.getElementById('metadataGrid');
+        const summarizeBtn = document.getElementById('summarizeBtn');
+        const summaryContent = document.getElementById('summaryContent');
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            startExtraction();
+        });
+
+        summarizeBtn.addEventListener('click', startSummarization);
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function haptic(type) {
+            if (isTelegram && tg.HapticFeedback) {
+                if (type === 'success') tg.HapticFeedback.notificationOccurred('success');
+                else if (type === 'error') tg.HapticFeedback.notificationOccurred('error');
+                else tg.HapticFeedback.impactOccurred('medium');
+            }
+        }
+
+        function addLog(msg) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const time = new Date().toLocaleTimeString('ru', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+            entry.innerHTML = `<span class="time">${time}</span>${msg}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateProgress(pct, status) {
+            progressBar.style.width = pct + '%';
+            if (status) statusText.textContent = status;
+        }
+
+        function startExtraction() {
+            const url = urlInput.value.trim();
+            if (!url) {
+                showToast('Введите ссылку');
+                haptic('error');
+                return;
+            }
+
+            currentContentId = null;
+            progressSection.classList.remove('active');
+            resultSection.classList.remove('active');
+            summarySection.classList.remove('active');
+            logContainer.innerHTML = '';
+            updateProgress(0);
+
+            progressSection.classList.add('active');
+            extractBtn.classList.add('loading');
+            extractBtn.disabled = true;
+            haptic();
+
+            fetch('/extract/stream', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url})
+            })
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                function read() {
+                    reader.read().then(({done, value}) => {
+                        if (done) {
+                            extractBtn.classList.remove('loading');
+                            extractBtn.disabled = false;
+                            return;
+                        }
+
+                        decoder.decode(value, {stream: true}).split('\n').forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    handleExtractEvent(JSON.parse(line.substring(6)));
+                                } catch (e) {}
+                            }
+                        });
+
+                        read();
+                    });
+                }
+                read();
+            })
+            .catch(err => {
+                addLog('❌ Ошибка подключения');
+                extractBtn.classList.remove('loading');
+                extractBtn.disabled = false;
+                haptic('error');
+            });
+        }
+
+        function handleExtractEvent(d) {
+            console.log('Event received:', d);
+            addLog(d.message);
+
+            // Detailed progress mapping
+            const progressMap = {
+                'started': [5, 'Запуск...'],
+                'connecting': [10, 'Подключение...'],
+                'downloading_audio': [30, 'Загрузка аудио...'],
+                'metadata_received': [30, 'Метаданные получены'],
+                'metadata_display': [35, 'Обработка...'],
+                'audio_downloaded': [45, 'Аудио загружено'],
+                'whisper_loading': [50, 'Загрузка Whisper...'],
+                'whisper_transcribing': [55, 'Транскрипция...'],
+                'whisper_progress': [60, 'Транскрипция...'],
+                'creating_chunks': [85, 'Создание чанков...'],
+                'chunks_created': [95, 'Чанки готовы'],
+                'completed': [100, 'Готово!']
+            };
+
+            if (progressMap[d.status]) {
+                const [pct, txt] = progressMap[d.status];
+                updateProgress(pct, txt);
+            }
+
+            // Store content_id when received
+            if (d.content_id) {
+                currentContentId = d.content_id;
+            }
+
+            // Handle completion
+            if (d.status === 'completed') {
+                displayResults(d.result);
+                haptic('success');
+                showToast('✅ Готово');
+            }
+
+            // Handle errors
+            if (d.status === 'error') {
+                haptic('error');
+                extractBtn.classList.remove('loading');
+                extractBtn.disabled = false;
+            }
+        }
+
+        function displayResults(res) {
+            const meta = res.metadata || {};
+            const dur = meta.duration ? Math.floor(meta.duration / 60) + ' мин' : 'N/A';
+            const len = res.full_transcript?.length || 0;
+            const size = (len / 1024).toFixed(1) + ' KB';
+
+            metadataGrid.innerHTML = `
+                <div class="metadata-row">
+                    <span class="metadata-label">ID</span>
+                    <span class="metadata-value">${res.content_id}</span>
+                </div>
+                <div class="metadata-row">
+                    <span class="metadata-label">Название</span>
+                    <span class="metadata-value" title="${meta.title || 'N/A'}">${trunc(meta.title, 30)}</span>
+                </div>
+                <div class="metadata-row">
+                    <span class="metadata-label">Длительность</span>
+                    <span class="metadata-value">${dur}</span>
+                </div>
+                <div class="metadata-row">
+                    <span class="metadata-label">Транскрипт</span>
+                    <span class="metadata-value">${size}</span>
+                </div>
+            `;
+            resultSection.classList.add('active');
+        }
+
+        function trunc(s, n) {
+            if (!s) return 'N/A';
+            return s.length > n ? s.substring(0, n) + '...' : s;
+        }
+
+        function startSummarization() {
+            if (!currentContentId) {
+                showToast('Нет ID');
+                haptic('error');
+                return;
+            }
+
+            summarySection.classList.add('active');
+            summaryContent.innerHTML = '<span class="typing-cursor"></span>';
+            summarizeBtn.disabled = true;
+            summarizeBtn.textContent = '⏳ Генерация...';
+            haptic();
+
+            fetch(`/summarize/stream/${currentContentId}`, {method: 'POST'})
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                function read() {
+                    reader.read().then(({done, value}) => {
+                        if (done) {
+                            summarizeBtn.disabled = false;
+                            summarizeBtn.textContent = '✅ Готово';
+                            haptic('success');
+                            return;
+                        }
+
+                        decoder.decode(value, {stream: true}).split('\n').forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    handleSummaryEvent(JSON.parse(line.substring(6)));
+                                } catch (e) {}
+                            }
+                        });
+
+                        read();
+                    });
+                }
+                read();
+            })
+            .catch(err => {
+                summaryContent.innerHTML = '<div class="error-message">Ошибка генерации</div>';
+                summarizeBtn.disabled = false;
+                summarizeBtn.textContent = '📝 Создать конспект';
+                haptic('error');
+            });
+        }
+
+        function handleSummaryEvent(d) {
+            if (d.status === 'generating') {
+                summaryContent.innerHTML = d.text + '<span class="typing-cursor"></span>';
+            } else if (d.status === 'completed') {
+                summaryContent.innerHTML = d.summary;
+            } else if (d.status === 'error') {
+                summaryContent.innerHTML = `<div class="error-message">${d.message}</div>`;
+                summarizeBtn.disabled = false;
+                summarizeBtn.textContent = '📝 Создать конспект';
+            }
+        }
+
+        // Auto-fill from Telegram deep link
+        if (isTelegram && tg.initDataUnsafe?.start_param) {
+            urlInput.value = decodeURIComponent(tg.initDataUnsafe.start_param);
+        }
+    </script>
+</body>
+</html>

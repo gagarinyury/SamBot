@@ -142,8 +142,112 @@ class ContentExtractor:
             "processing_time": processing_time
         }
 
+    def _extract_chapters_from_description(self, description: str) -> list:
+        """
+        Extract chapters from YouTube video description.
+        Format: 00:00 — Chapter title or 0:34 — Chapter title
+        """
+        import re
+
+        if not description:
+            return []
+
+        chapters = []
+        # Match patterns like: 00:00, 0:34, 12:45, etc.
+        pattern = r'(\d{1,2}:\d{2}(?::\d{2})?)\s*[-—–]\s*(.+?)(?:\n|$)'
+
+        for match in re.finditer(pattern, description, re.MULTILINE):
+            timestamp = match.group(1).strip()
+            title = match.group(2).strip()
+
+            # Convert timestamp to seconds
+            parts = timestamp.split(':')
+            if len(parts) == 2:  # MM:SS
+                seconds = int(parts[0]) * 60 + int(parts[1])
+            elif len(parts) == 3:  # HH:MM:SS
+                seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            else:
+                continue
+
+            chapters.append({
+                'timestamp': timestamp,
+                'seconds': seconds,
+                'title': title
+            })
+
+        return chapters
+
+    async def _extract_metadata_from_youtube_api(self, video_id: str) -> Optional[Dict[str, Any]]:
+        """Extract YouTube metadata using YouTube Data API v3."""
+        import aiohttp
+        import re
+
+        if not hasattr(settings, 'YOUTUBE_API_KEY') or not settings.YOUTUBE_API_KEY:
+            return None
+
+        try:
+            api_url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id={video_id}&key={settings.YOUTUBE_API_KEY}"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url) as resp:
+                    if resp.status != 200:
+                        logger.error("youtube_api_failed", status=resp.status)
+                        return None
+
+                    data = await resp.json()
+
+                    if not data.get('items'):
+                        logger.error("youtube_api_no_items")
+                        return None
+
+                    item = data['items'][0]
+                    snippet = item['snippet']
+                    content_details = item['contentDetails']
+
+                    # Parse ISO 8601 duration (PT12M31S -> 751 seconds)
+                    duration_str = content_details['duration']
+                    duration_match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration_str)
+                    hours = int(duration_match.group(1) or 0)
+                    minutes = int(duration_match.group(2) or 0)
+                    seconds = int(duration_match.group(3) or 0)
+                    duration = hours * 3600 + minutes * 60 + seconds
+
+                    # Extract chapters from description
+                    chapters = self._extract_chapters_from_description(snippet.get('description', ''))
+
+                    logger.info("youtube_api_success", title=snippet['title'][:50], chapters_found=len(chapters))
+
+                    return {
+                        'title': snippet['title'],
+                        'channel': snippet['channelTitle'],
+                        'duration': float(duration),
+                        'description': snippet.get('description'),
+                        'chapters': chapters,
+                        'language': snippet.get('defaultAudioLanguage') or snippet.get('defaultLanguage'),
+                        'platform': 'youtube',
+                    }
+
+        except Exception as e:
+            logger.error("youtube_api_error", error=str(e))
+            return None
+
     async def _extract_metadata(self, url: str) -> Optional[Dict[str, Any]]:
         """Extract metadata from URL."""
+
+        # Try YouTube Data API v3 first for YouTube videos
+        if 'youtube.com' in url or 'youtu.be' in url:
+            import re
+            video_id_match = re.search(r'(?:v=|/)([a-zA-Z0-9_-]{11})', url)
+            if video_id_match:
+                video_id = video_id_match.group(1)
+                logger.info("trying_youtube_api", video_id=video_id)
+                youtube_metadata = await self._extract_metadata_from_youtube_api(video_id)
+                if youtube_metadata:
+                    logger.info("youtube_api_metadata_success")
+                    return youtube_metadata
+                logger.info("youtube_api_failed_fallback_to_ytdlp")
+
+        # Fallback to yt-dlp for all platforms
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
@@ -184,74 +288,87 @@ class ContentExtractor:
         """
         Extract transcript from YouTube video.
 
+        DISABLED: YouTube subtitle extraction to avoid 429 bans.
+        Use Whisper transcription instead.
+
         Returns:
-            Full transcript text or None if not available
+            None (always use Whisper fallback)
         """
-        logger.info("transcript_extraction_start", url=url[:50])
+        logger.info("transcript_extraction_disabled_using_whisper_only")
+        return None
 
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'writesubtitles': True,
-            'writeautomaticsub': True,
-            'socket_timeout': settings.SOCKET_TIMEOUT,
-        }
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                logger.info("yt_dlp_extracting_info")
-                info = ydl.extract_info(url, download=False)
-
-                has_subs = bool(info.get('subtitles'))
-                has_auto = bool(info.get('automatic_captions'))
-
-                logger.info("subtitle_check", has_manual=has_subs, has_auto=has_auto)
-
-                if not (has_subs or has_auto):
-                    logger.info("no_subtitles_found")
-                    return None
-
-                # Get subtitles source
-                source = info.get('subtitles') or info.get('automatic_captions')
-                available_langs = list(source.keys())
-                logger.info("available_languages", langs=available_langs[:5])
-
-                # Find best language
-                lang = self._find_best_language(
-                    source,
-                    preferred_language or info.get('language')
-                )
-
-                if not lang:
-                    logger.error("no_suitable_language_found", available=available_langs[:5])
-                    return None
-
-                logger.info("selected_language", lang=lang)
-
-                # Get transcript URL
-                for sub in source[lang]:
-                    sub_url = sub.get('url')
-                    sub_ext = sub.get('ext')
-                    logger.info("checking_subtitle", ext=sub_ext, has_url=bool(sub_url))
-
-                    if sub_url:
-                        logger.info("downloading_transcript", url=sub_url[:70])
-                        # Download and parse transcript
-                        transcript = await self._download_transcript(sub_url)
-
-                        if transcript:
-                            logger.info("transcript_extracted", length=len(transcript))
-                            return transcript
-                        else:
-                            logger.error("transcript_download_returned_empty")
-
-                logger.error("no_subtitle_url_found")
-                return None
-
-        except Exception as e:
-            logger.error("transcript_extraction_failed", error=str(e))
-            return None
+        # COMMENTED OUT: YouTube subtitle extraction (causes 429 bans)
+        # ydl_opts = {
+        #     'quiet': True,
+        #     'no_warnings': True,
+        #     'skip_download': True,
+        #     'writesubtitles': True,
+        #     'writeautomaticsub': True,
+        #     'subtitlesformat': 'json3',
+        #     'socket_timeout': settings.SOCKET_TIMEOUT,
+        # }
+        #
+        # try:
+        #     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        #         logger.info("yt_dlp_extracting_info")
+        #         info = ydl.extract_info(url, download=False)
+        #
+        #         has_subs = bool(info.get('subtitles'))
+        #         has_auto = bool(info.get('automatic_captions'))
+        #
+        #         logger.info("subtitle_check", has_manual=has_subs, has_auto=has_auto)
+        #
+        #         if not (has_subs or has_auto):
+        #             logger.info("no_subtitles_found")
+        #             return None
+        #
+        #         # Get subtitles source
+        #         source = info.get('subtitles') or info.get('automatic_captions')
+        #         available_langs = list(source.keys())
+        #         logger.info("available_languages", langs=available_langs[:5])
+        #
+        #         # Find best language
+        #         lang = self._find_best_language(
+        #             source,
+        #             preferred_language or info.get('language')
+        #         )
+        #
+        #         if not lang:
+        #             logger.error("no_suitable_language_found", available=available_langs[:5])
+        #             return None
+        #
+        #         logger.info("selected_language", lang=lang)
+        #
+        #         # Get transcript URL - ONLY json3 format to avoid 429 bans
+        #         json3_subtitle = None
+        #         for sub in source[lang]:
+        #             if sub.get('ext') == 'json3':
+        #                 json3_subtitle = sub
+        #                 break
+        #
+        #         if not json3_subtitle:
+        #             logger.error("no_json3_subtitle_found", available=[s.get('ext') for s in source[lang]])
+        #             return None
+        #
+        #         sub_url = json3_subtitle.get('url')
+        #         if not sub_url:
+        #             logger.error("no_subtitle_url_found")
+        #             return None
+        #
+        #         logger.info("downloading_transcript", format="json3", url=sub_url[:70])
+        #         # Download and parse transcript
+        #         transcript = await self._download_transcript(sub_url)
+        #
+        #         if transcript:
+        #             logger.info("transcript_extracted", length=len(transcript))
+        #             return transcript
+        #         else:
+        #             logger.error("transcript_download_returned_empty")
+        #             return None
+        #
+        # except Exception as e:
+        #     logger.error("transcript_extraction_failed", error=str(e))
+        #     return None
 
     def _find_best_language(
         self,
@@ -368,7 +485,7 @@ class ContentExtractor:
 
     async def _transcribe_audio(self, audio_path: Path) -> Optional[str]:
         """
-        Transcribe audio file using Whisper.
+        Transcribe audio file using faster-whisper (4x speed improvement).
 
         Args:
             audio_path: Path to audio file
@@ -377,37 +494,40 @@ class ContentExtractor:
             Transcribed text or None if failed
         """
         try:
-            import whisper
+            from faster_whisper import WhisperModel
 
             # Lazy load model (heavy operation)
             if self._whisper_model is None:
-                logger.info("loading_whisper_model", model=settings.WHISPER_MODEL)
-                self._whisper_model = whisper.load_model(
+                logger.info("loading_faster_whisper_model", model=settings.WHISPER_MODEL)
+                self._whisper_model = WhisperModel(
                     settings.WHISPER_MODEL,
-                    device=settings.WHISPER_DEVICE
+                    device=settings.WHISPER_DEVICE,
+                    compute_type="int8"  # Faster on CPU
                 )
-                logger.info("whisper_model_loaded")
+                logger.info("faster_whisper_model_loaded")
 
-            logger.info("transcribing_audio", file=audio_path.name)
+            logger.info("transcribing_audio_faster_whisper", file=audio_path.name)
 
-            # Transcribe
-            result = self._whisper_model.transcribe(
+            # Transcribe (4x faster than vanilla Whisper!)
+            segments, info = self._whisper_model.transcribe(
                 str(audio_path),
                 language=settings.WHISPER_LANGUAGE,
-                fp16=False  # CPU compatibility
+                beam_size=5  # Good balance between speed and accuracy
             )
 
-            transcript = result["text"].strip()
+            # Extract text from segments
+            transcript = " ".join([seg.text for seg in segments]).strip()
+
             logger.info(
-                "transcription_completed",
-                detected_language=result.get("language"),
+                "faster_whisper_transcription_completed",
+                detected_language=info.language,
                 length=len(transcript)
             )
 
             return transcript if transcript else None
 
         except Exception as e:
-            logger.error("whisper_transcription_failed", error=str(e))
+            logger.error("faster_whisper_transcription_failed", error=str(e))
             return None
 
     def _create_chunks(self, text: str) -> List[Dict[str, Any]]:
