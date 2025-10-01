@@ -128,6 +128,13 @@ class ContentExtractor:
             processing_time=f"{processing_time:.2f}s"
         )
 
+        # Enqueue background tasks (embedding + summarization)
+        if transcript and total_chunks > 0:
+            from queue_client import enqueue_embedding
+            job_id = enqueue_embedding(content_id)
+            if job_id:
+                logger.info("background_pipeline_enqueued", content_id=content_id, job_id=job_id)
+
         return {
             "status": "success",
             "content_id": content_id,
@@ -286,89 +293,108 @@ class ContentExtractor:
         preferred_language: Optional[str] = None
     ) -> Optional[str]:
         """
-        Extract transcript from YouTube video.
+        Extract transcript from YouTube video using Android client.
 
-        DISABLED: YouTube subtitle extraction to avoid 429 bans.
-        Use Whisper transcription instead.
+        Strategy:
+        - Uses player_client=android to avoid 429 bans
+        - Random delays (3-5s between videos, 2s between subtitles)
+        - VTT format (easier to parse than json3)
+        - Fallback to Whisper if no subtitles available
 
         Returns:
-            None (always use Whisper fallback)
+            Transcript text or None
         """
-        logger.info("transcript_extraction_disabled_using_whisper_only")
-        return None
+        import random
+        import time
 
-        # COMMENTED OUT: YouTube subtitle extraction (causes 429 bans)
-        # ydl_opts = {
-        #     'quiet': True,
-        #     'no_warnings': True,
-        #     'skip_download': True,
-        #     'writesubtitles': True,
-        #     'writeautomaticsub': True,
-        #     'subtitlesformat': 'json3',
-        #     'socket_timeout': settings.SOCKET_TIMEOUT,
-        # }
-        #
-        # try:
-        #     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        #         logger.info("yt_dlp_extracting_info")
-        #         info = ydl.extract_info(url, download=False)
-        #
-        #         has_subs = bool(info.get('subtitles'))
-        #         has_auto = bool(info.get('automatic_captions'))
-        #
-        #         logger.info("subtitle_check", has_manual=has_subs, has_auto=has_auto)
-        #
-        #         if not (has_subs or has_auto):
-        #             logger.info("no_subtitles_found")
-        #             return None
-        #
-        #         # Get subtitles source
-        #         source = info.get('subtitles') or info.get('automatic_captions')
-        #         available_langs = list(source.keys())
-        #         logger.info("available_languages", langs=available_langs[:5])
-        #
-        #         # Find best language
-        #         lang = self._find_best_language(
-        #             source,
-        #             preferred_language or info.get('language')
-        #         )
-        #
-        #         if not lang:
-        #             logger.error("no_suitable_language_found", available=available_langs[:5])
-        #             return None
-        #
-        #         logger.info("selected_language", lang=lang)
-        #
-        #         # Get transcript URL - ONLY json3 format to avoid 429 bans
-        #         json3_subtitle = None
-        #         for sub in source[lang]:
-        #             if sub.get('ext') == 'json3':
-        #                 json3_subtitle = sub
-        #                 break
-        #
-        #         if not json3_subtitle:
-        #             logger.error("no_json3_subtitle_found", available=[s.get('ext') for s in source[lang]])
-        #             return None
-        #
-        #         sub_url = json3_subtitle.get('url')
-        #         if not sub_url:
-        #             logger.error("no_subtitle_url_found")
-        #             return None
-        #
-        #         logger.info("downloading_transcript", format="json3", url=sub_url[:70])
-        #         # Download and parse transcript
-        #         transcript = await self._download_transcript(sub_url)
-        #
-        #         if transcript:
-        #             logger.info("transcript_extracted", length=len(transcript))
-        #             return transcript
-        #         else:
-        #             logger.error("transcript_download_returned_empty")
-        #             return None
-        #
-        # except Exception as e:
-        #     logger.error("transcript_extraction_failed", error=str(e))
-        #     return None
+        # ENABLED: YouTube subtitle extraction with Android client + sleep delays
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'writesubtitles': True,
+            'writeautomaticsub': True,
+            'subtitlesformat': 'vtt',  # VTT format (easier to parse)
+            'socket_timeout': settings.SOCKET_TIMEOUT,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android']  # Android client to avoid 429 bans
+                }
+            },
+            # Anti-ban delays
+            'sleep_interval': 3,           # 3-5 seconds between videos
+            'max_sleep_interval': 5,
+            'sleep_interval_subtitles': 2,  # 2 seconds between subtitles
+            'sleep_interval_requests': 0.75,  # 0.75s between HTTP requests
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                logger.info("yt_dlp_extracting_subtitles_android_client")
+                info = ydl.extract_info(url, download=False)
+
+                has_subs = bool(info.get('subtitles'))
+                has_auto = bool(info.get('automatic_captions'))
+
+                logger.info("subtitle_check", has_manual=has_subs, has_auto=has_auto)
+
+                if not (has_subs or has_auto):
+                    logger.info("no_subtitles_found_fallback_to_whisper")
+                    return None
+
+                # Get subtitles source
+                source = info.get('subtitles') or info.get('automatic_captions')
+                available_langs = list(source.keys())
+                logger.info("available_languages", langs=available_langs[:5])
+
+                # Find best language
+                lang = self._find_best_language(
+                    source,
+                    preferred_language or info.get('language')
+                )
+
+                if not lang:
+                    logger.error("no_suitable_language_found", available=available_langs[:5])
+                    return None
+
+                logger.info("selected_language", lang=lang)
+
+                # Get transcript URL - VTT format
+                vtt_subtitle = None
+                for sub in source[lang]:
+                    if sub.get('ext') == 'vtt':
+                        vtt_subtitle = sub
+                        break
+
+                if not vtt_subtitle:
+                    logger.error("no_vtt_subtitle_found", available=[s.get('ext') for s in source[lang]])
+                    return None
+
+                sub_url = vtt_subtitle.get('url')
+                if not sub_url:
+                    logger.error("no_subtitle_url_found")
+                    return None
+
+                logger.info("downloading_transcript_vtt", url=sub_url[:70])
+
+                # Random delay before downloading (human-like behavior)
+                delay = random.uniform(1.5, 3.0)
+                logger.info("sleep_before_subtitle_download", seconds=f"{delay:.2f}")
+                time.sleep(delay)
+
+                # Download and parse transcript
+                transcript = await self._download_transcript(sub_url)
+
+                if transcript:
+                    logger.info("transcript_extracted_android_client", length=len(transcript))
+                    return transcript
+                else:
+                    logger.error("transcript_download_returned_empty")
+                    return None
+
+        except Exception as e:
+            logger.error("transcript_extraction_failed_fallback_to_whisper", error=str(e))
+            return None
 
     def _find_best_language(
         self,
@@ -430,11 +456,29 @@ class ContentExtractor:
                     else:
                         # VTT or SRT format
                         text = content
-                        # Remove timestamps and formatting
+
+                        # Clean WEBVTT format thoroughly
+                        # Remove WEBVTT header and metadata
+                        text = re.sub(r'^WEBVTT.*?\n', '', text)
+                        text = re.sub(r'Kind:.*?\n', '', text)
+                        text = re.sub(r'Language:.*?\n', '', text)
+
+                        # Remove timestamps
                         text = re.sub(r'\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}', '', text)
+
+                        # Remove VTT positioning tags (align:start position:0%, etc)
+                        text = re.sub(r'align:\w+\s+position:\d+%\s*', '', text)
+
+                        # Remove subtitle index numbers
                         text = re.sub(r'^\d+\s*$', '', text, flags=re.MULTILINE)
-                        text = re.sub(r'<[^>]+>', '', text)  # Remove tags
+
+                        # Remove HTML/XML tags
+                        text = re.sub(r'<[^>]+>', '', text)
+
+                        # Clean up whitespace
                         text = re.sub(r'\n+', ' ', text)
+                        text = re.sub(r'\s+', ' ', text)
+
                         return text.strip()
 
         except Exception as e:

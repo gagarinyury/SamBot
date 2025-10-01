@@ -84,6 +84,76 @@ class OllamaClient:
             logger.error("ollama_error", error=str(e))
             raise
 
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: Optional[int] = None
+    ):
+        """
+        Generate text using Ollama with streaming.
+
+        Args:
+            prompt: User prompt
+            system_prompt: System instructions
+            temperature: Sampling temperature (0.0-1.0)
+            max_tokens: Maximum tokens to generate
+
+        Yields:
+            Text chunks as they are generated
+        """
+        try:
+            # Prepare messages
+            messages = []
+            if system_prompt:
+                messages.append({
+                    "role": "system",
+                    "content": system_prompt
+                })
+            messages.append({
+                "role": "user",
+                "content": prompt
+            })
+
+            # Call Ollama API with streaming
+            url = f"{self.base_url}/api/chat"
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": True,  # Enable streaming
+                "options": {
+                    "temperature": temperature,
+                }
+            }
+
+            if max_tokens:
+                payload["options"]["num_predict"] = max_tokens
+
+            logger.info("ollama_request_stream", model=self.model, prompt_length=len(prompt))
+
+            async with self.client.stream("POST", url, json=payload, timeout=300.0) as response:
+                response.raise_for_status()
+
+                async for line in response.aiter_lines():
+                    if line.strip():
+                        import json
+                        data = json.loads(line)
+
+                        if "message" in data and "content" in data["message"]:
+                            chunk = data["message"]["content"]
+                            if chunk:
+                                yield chunk
+
+                        # Check if done
+                        if data.get("done", False):
+                            logger.info("ollama_stream_completed")
+                            break
+
+        except Exception as e:
+            logger.error("ollama_stream_error", error=str(e))
+            raise
+
     async def check_health(self) -> bool:
         """Check if Ollama is available."""
         try:

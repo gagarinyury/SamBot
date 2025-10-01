@@ -54,6 +54,55 @@ class Database:
                 'has_embedding': row['embedding'] is not None
             }
 
+    async def get_chunks(self, content_id: int) -> List[Dict[str, Any]]:
+        """Get all chunks for content."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, chunk_text, chunk_index
+                FROM content_chunks
+                WHERE content_id = $1
+                ORDER BY chunk_index
+                """,
+                content_id
+            )
+
+            return [
+                {
+                    'chunk_id': row['id'],
+                    'text': row['chunk_text'],
+                    'index': row['chunk_index']
+                }
+                for row in rows
+            ]
+
+    async def save_chunk_embedding(
+        self,
+        chunk_id: int,
+        embedding: List[float],
+        model: str
+    ) -> bool:
+        """Save embedding for a single chunk."""
+        async with self.pool.acquire() as conn:
+            # Convert list to pgvector format
+            embedding_str = '[' + ','.join(map(str, embedding)) + ']'
+
+            await conn.execute(
+                """
+                INSERT INTO content_embeddings (chunk_id, embedding, model_name)
+                VALUES ($1, $2::vector, $3)
+                ON CONFLICT (chunk_id)
+                DO UPDATE SET
+                    embedding = EXCLUDED.embedding,
+                    model_name = EXCLUDED.model_name,
+                    created_at = NOW()
+                """,
+                chunk_id,
+                embedding_str,
+                model
+            )
+            return True
+
     async def save_embedding(
         self,
         content_id: int,
@@ -85,49 +134,83 @@ class Database:
         self,
         query_embedding: List[float],
         limit: int = 3,
-        min_similarity: float = 0.7
+        min_similarity: float = 0.7,
+        content_id: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
-        Search for similar content using vector similarity.
+        Search for similar chunks using vector similarity.
 
         Args:
             query_embedding: Query vector
             limit: Max results to return
             min_similarity: Minimum cosine similarity threshold
+            content_id: Optional content ID to filter by specific video
 
         Returns:
-            List of similar content with similarity scores
+            List of similar chunks with similarity scores
         """
         async with self.pool.acquire() as conn:
             # Convert embedding to pgvector format
             embedding_str = '[' + ','.join(map(str, query_embedding)) + ']'
 
-            rows = await conn.fetch(
+            # Build query with optional content_id filter
+            if content_id is not None:
+                query = """
+                    SELECT
+                        cc.id as chunk_id,
+                        cc.chunk_text,
+                        cc.chunk_index,
+                        oc.id as content_id,
+                        oc.original_url,
+                        oc.metadata,
+                        1 - (ce.embedding <=> $1::vector) as similarity
+                    FROM content_embeddings ce
+                    JOIN content_chunks cc ON ce.chunk_id = cc.id
+                    JOIN original_content oc ON cc.content_id = oc.id
+                    WHERE 1 - (ce.embedding <=> $1::vector) >= $2
+                      AND oc.id = $4
+                    ORDER BY ce.embedding <=> $1::vector
+                    LIMIT $3
                 """
-                SELECT
-                    id,
-                    original_url,
-                    raw_content,
-                    metadata,
-                    1 - (embedding <=> $1::vector) as similarity
-                FROM original_content
-                WHERE
-                    embedding IS NOT NULL
-                    AND 1 - (embedding <=> $1::vector) >= $2
-                ORDER BY embedding <=> $1::vector
-                LIMIT $3
-                """,
-                embedding_str,
-                min_similarity,
-                limit
-            )
+                rows = await conn.fetch(
+                    query,
+                    embedding_str,
+                    min_similarity,
+                    limit,
+                    content_id
+                )
+            else:
+                query = """
+                    SELECT
+                        cc.id as chunk_id,
+                        cc.chunk_text,
+                        cc.chunk_index,
+                        oc.id as content_id,
+                        oc.original_url,
+                        oc.metadata,
+                        1 - (ce.embedding <=> $1::vector) as similarity
+                    FROM content_embeddings ce
+                    JOIN content_chunks cc ON ce.chunk_id = cc.id
+                    JOIN original_content oc ON cc.content_id = oc.id
+                    WHERE 1 - (ce.embedding <=> $1::vector) >= $2
+                    ORDER BY ce.embedding <=> $1::vector
+                    LIMIT $3
+                """
+                rows = await conn.fetch(
+                    query,
+                    embedding_str,
+                    min_similarity,
+                    limit
+                )
 
             results = []
             for row in rows:
                 results.append({
-                    'id': row['id'],
+                    'chunk_id': row['chunk_id'],
+                    'chunk_text': row['chunk_text'],
+                    'chunk_index': row['chunk_index'],
+                    'content_id': row['content_id'],
                     'url': row['original_url'],
-                    'content': row['raw_content'],
                     'metadata': row['metadata'],
                     'similarity': float(row['similarity'])
                 })
@@ -135,7 +218,8 @@ class Database:
             logger.info(
                 "semantic_search_completed",
                 results_count=len(results),
-                min_similarity=min_similarity
+                min_similarity=min_similarity,
+                content_id=content_id
             )
 
             return results

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # RAG settings
     EMBEDDING_DIMENSION: int = 768  # nomic-embed-text dimension
     TOP_K_RESULTS: int = 3  # Number of similar chunks to retrieve
-    SIMILARITY_THRESHOLD: float = 0.7  # Minimum cosine similarity
+    SIMILARITY_THRESHOLD: float = 0.5  # Minimum cosine similarity (0.7 too strict, 0.5 better for general questions)
 
     # Generation settings
     MAX_CONTEXT_LENGTH: int = 4000  # Max tokens for context

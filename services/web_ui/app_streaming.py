@@ -74,7 +74,7 @@ def get_youtube_metadata(video_id: str) -> dict:
 @app.route('/')
 def index():
     """Main page with Telegram Web App UI."""
-    return render_template('index_telegram.html')
+    return render_template('index_modern.html')
 
 
 @app.route('/extract/stream', methods=['POST'])
@@ -163,7 +163,7 @@ def extract_stream():
             )
 
             if content_response.status_code != 200:
-                yield f"data: {json.dumps({'status': 'partial', 'message': '⚠️ Частичное извлечение', 'result': result})}\n\n"
+                yield f"data: {json.dumps({'status': 'partial', 'message': '⚠️ Частичное извлечение', 'result': safe_result})}\n\n"
                 return
 
             full_content = content_response.json()
@@ -189,10 +189,22 @@ def extract_stream():
             time.sleep(0.2)
 
             # Stage 5: Completion
-            result['full_transcript'] = full_transcript
-            result['metadata'] = final_metadata
+            # result['full_transcript'] = full_transcript
+            # result['metadata'] = final_metadata
+            # Send only safe data (no huge transcript)
+            safe_result = {
+                'content_id': result.get('content_id'),
+                'strategy': result.get('strategy'),
+                'total_chunks': chunks_count,
+                'processing_time': result.get('processing_time'),
+                'metadata': {
+                    'title': final_metadata.get('title', 'N/A'),
+                    'channel': final_metadata.get('channel', 'N/A'),
+                    'duration': final_metadata.get('duration', 0)
+                }
+            }
 
-            yield f"data: {json.dumps({'status': 'completed', 'message': f'🎉 Готово за {int(extraction_time)}s!', 'result': result})}\n\n"
+            yield f"data: {json.dumps({'status': 'completed', 'message': f'🎉 Готово за {int(extraction_time)}s!', 'result': safe_result})}\n\n"
 
         except requests.exceptions.Timeout:
             yield f"data: {json.dumps({'status': 'error', 'message': '⏱️ Request timeout - video too long'})}\n\n"
@@ -204,40 +216,46 @@ def extract_stream():
 
 @app.route('/summarize/stream/<int:content_id>', methods=['POST'])
 def summarize_stream(content_id):
-    """Generate summary with real-time streaming via SSE (like ChatGPT)."""
+    """Generate summary with real-time streaming via SSE."""
     def generate():
-        """Stream summary generation token by token."""
+        """Stream summary generation from Ollama in real-time."""
         try:
-            yield f"data: {json.dumps({'status': 'started', 'message': '📝 Generating structured summary...'})}\n\n"
-            time.sleep(0.1)
+            yield f"data: {json.dumps({'status': 'started', 'message': '📝 Generating summary...'})}\n\n"
 
-            # Call summarizer API with streaming
+            # Call summarizer API with REAL streaming
             response = requests.post(
-                f'{SUMMARIZER_URL}/summarize',
-                json={'content_id': content_id},
-                timeout=300,  # 5 minutes
-                stream=False  # For now, non-streaming (Ollama streaming requires different approach)
+                f'{SUMMARIZER_URL}/summarize/stream/{content_id}',
+                stream=True,  # REAL streaming from Ollama!
+                timeout=300
             )
 
             if response.status_code != 200:
                 yield f"data: {json.dumps({'status': 'error', 'message': f'❌ Error: {response.text}'})}\n\n"
                 return
 
-            result = response.json()
-
-            # Simulate streaming output (chunked display)
-            summary_text = result.get('summary', '')
-
-            # Split by lines for progressive display
-            lines = summary_text.split('\n')
+            # Forward SSE events from summarizer
             accumulated = ''
+            for line in response.iter_lines():
+                if line:
+                    line_text = line.decode('utf-8')
 
-            for line in lines:
-                accumulated += line + '\n'
-                yield f"data: {json.dumps({'status': 'generating', 'text': accumulated})}\n\n"
-                time.sleep(0.05)  # Smooth display
+                    # Forward the SSE event as-is
+                    if line_text.startswith('data: '):
+                        yield line_text + '\n\n'
 
-            yield f"data: {json.dumps({'status': 'completed', 'summary': summary_text, 'result': result})}\n\n"
+                        # Also parse and accumulate for our own tracking
+                        try:
+                            data = json.loads(line_text[6:])  # Skip "data: "
+                            if data.get('status') == 'generating':
+                                accumulated = data.get('text', accumulated)
+                            elif data.get('status') == 'completed':
+                                accumulated = data.get('summary', accumulated)
+                        except:
+                            pass
+
+            # Ensure completed event is sent
+            if accumulated and not line_text.endswith('"completed"'):
+                yield f"data: {json.dumps({'status': 'completed', 'summary': accumulated})}\n\n"
 
         except requests.exceptions.Timeout:
             yield f"data: {json.dumps({'status': 'error', 'message': '⏱️ Summarization timeout'})}\n\n"

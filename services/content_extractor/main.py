@@ -213,10 +213,17 @@ async def get_stats():
 if __name__ == "__main__":
     import uvicorn
 
+    reload_config = {}
+    if settings.RELOAD:
+        reload_config = {
+            "reload": True,
+            "reload_dirs": ["/app"]  # Watch /app directory for changes
+        }
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=settings.SERVICE_PORT,
         log_level=settings.LOG_LEVEL.lower(),
-        reload=False
+        **reload_config
     )

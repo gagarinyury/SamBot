@@ -30,7 +30,7 @@ class RAGEngine:
 
     async def generate_and_save_embedding(self, content_id: int) -> bool:
         """
-        Generate and save embedding for content.
+        Generate and save embeddings for all chunks of content.
 
         Args:
             content_id: ID of content to embed
@@ -38,38 +38,53 @@ class RAGEngine:
         Returns:
             True if successful
         """
-        # Get content
-        content = await db.get_content(content_id)
+        # Get chunks
+        chunks = await db.get_chunks(content_id)
 
-        if not content or not content['raw_content']:
-            logger.error("no_content_found", content_id=content_id)
+        if not chunks:
+            logger.error("no_chunks_found", content_id=content_id)
             return False
 
-        # Generate embedding
-        text = content['raw_content']
+        logger.info("embedding_chunks_started", content_id=content_id, chunks_count=len(chunks))
 
-        # Truncate if too long (nomic-embed-text max ~8192 tokens, ~32K chars)
-        if len(text) > 30000:
-            logger.warning("truncating_text", original_length=len(text))
-            text = text[:30000]
+        # Generate embedding for each chunk
+        successful = 0
+        for chunk in chunks:
+            try:
+                # Generate embedding
+                embedding = await ollama.generate_embedding(chunk['text'])
 
-        embedding = await ollama.generate_embedding(text)
+                # Save to database
+                await db.save_chunk_embedding(
+                    chunk_id=chunk['chunk_id'],
+                    embedding=embedding,
+                    model=settings.EMBEDDING_MODEL
+                )
 
-        # Save to database
-        await db.save_embedding(
+                successful += 1
+
+                # Log progress every 10 chunks
+                if (chunk['index'] + 1) % 10 == 0:
+                    logger.info("embedding_progress", chunk=chunk['index'] + 1, total=len(chunks))
+
+            except Exception as e:
+                logger.error("chunk_embedding_failed", chunk_id=chunk['chunk_id'], error=str(e))
+
+        logger.info(
+            "embedding_chunks_completed",
             content_id=content_id,
-            embedding=embedding,
-            model=settings.EMBEDDING_MODEL
+            successful=successful,
+            total=len(chunks)
         )
 
-        logger.info("embedding_saved_for_content", content_id=content_id)
-        return True
+        return successful > 0
 
     async def search(
         self,
         query: str,
         top_k: int = None,
-        min_similarity: float = None
+        min_similarity: float = None,
+        content_id: int = None
     ) -> List[Dict[str, Any]]:
         """
         Search for content similar to query.
@@ -78,6 +93,7 @@ class RAGEngine:
             query: Search query
             top_k: Number of results (default from settings)
             min_similarity: Minimum similarity threshold
+            content_id: Optional content ID to filter by specific video
 
         Returns:
             List of similar content with scores
@@ -92,10 +108,11 @@ class RAGEngine:
         results = await db.semantic_search(
             query_embedding=query_embedding,
             limit=top_k,
-            min_similarity=min_similarity
+            min_similarity=min_similarity,
+            content_id=content_id
         )
 
-        logger.info("search_completed", query=query[:50], results=len(results))
+        logger.info("search_completed", query=query[:50], results=len(results), content_id=content_id)
 
         return results
 
@@ -103,7 +120,8 @@ class RAGEngine:
         self,
         question: str,
         top_k: int = None,
-        min_similarity: float = None
+        min_similarity: float = None,
+        content_id: int = None
     ) -> Dict[str, Any]:
         """
         Answer question using RAG.
@@ -117,6 +135,7 @@ class RAGEngine:
             question: User question
             top_k: Number of context chunks
             min_similarity: Minimum similarity threshold
+            content_id: Optional content ID to filter by specific video
 
         Returns:
             Answer with sources and metadata
@@ -125,7 +144,8 @@ class RAGEngine:
         search_results = await self.search(
             query=question,
             top_k=top_k,
-            min_similarity=min_similarity
+            min_similarity=min_similarity,
+            content_id=content_id
         )
 
         if not search_results:
@@ -154,22 +174,21 @@ class RAGEngine:
 
             # Add source info
             sources.append({
-                'id': result['id'],
+                'content_id': result['content_id'],
+                'chunk_id': result['chunk_id'],
+                'chunk_index': result['chunk_index'],
                 'title': title,
                 'channel': channel,
                 'url': result['url'],
                 'similarity': result['similarity']
             })
 
-            # Add context
-            content = result['content']
-            # Truncate if too long
-            if len(content) > 2000:
-                content = content[:2000] + '...'
+            # Add context from chunk
+            chunk_text = result['chunk_text']
 
             context_parts.append(f"""
-[Источник {i}: {title} - {channel}]
-{content}
+[Источник {i}: {title} - {channel}, фрагмент #{result['chunk_index']}]
+{chunk_text}
 """)
 
         context = "\n\n".join(context_parts)

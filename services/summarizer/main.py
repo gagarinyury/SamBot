@@ -26,21 +26,25 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
-    logger.info("summarizer_service_starting")
+    logger.info("summarizer_service_starting", ai_provider=settings.AI_PROVIDER)
     await db.connect()
 
-    # Check Ollama availability
-    if await ollama.check_health():
-        logger.info("ollama_connected", url=settings.OLLAMA_URL, model=settings.MODEL_NAME)
+    # Check AI provider availability
+    if settings.AI_PROVIDER == "deepseek":
+        logger.info("deepseek_configured", api_key_set=bool(settings.DEEPSEEK_API_KEY))
     else:
-        logger.warning("ollama_not_available", url=settings.OLLAMA_URL)
+        if await ollama.check_health():
+            logger.info("ollama_connected", url=settings.OLLAMA_URL, model=settings.MODEL_NAME)
+        else:
+            logger.warning("ollama_not_available", url=settings.OLLAMA_URL)
 
     yield
 
     # Shutdown
     logger.info("summarizer_service_stopping")
     await db.disconnect()
-    await ollama.close()
+    if settings.AI_PROVIDER == "ollama":
+        await ollama.close()
 
 
 app = FastAPI(
@@ -148,3 +152,57 @@ async def get_summary(content_id: int):
         "summary": content['summary'],
         "metadata": content.get('metadata')
     }
+
+
+@app.post("/summarize/stream/{content_id}")
+async def summarize_content_stream(content_id: int):
+    """
+    Generate summary with real-time streaming.
+    
+    Returns SSE stream with summary chunks.
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+    
+    async def generate():
+        try:
+            # Get content
+            content = await db.get_content(content_id)
+            
+            if not content:
+                yield f"data: {json.dumps({'status': 'error', 'message': 'Content not found'})}\n\n"
+                return
+            
+            # Always generate fresh summary with streaming for better UX
+            # (Even if cached summary exists, regenerate to show real-time progress)
+            
+            # Check if transcript available
+            if not content.get('raw_content'):
+                yield f"data: {json.dumps({'status': 'error', 'message': 'No transcript available'})}\n\n"
+                return
+            
+            logger.info("summarizing_content_stream", content_id=content_id)
+            
+            yield f"data: {json.dumps({'status': 'started', 'message': 'Generating summary...'})}\n\n"
+            
+            # Stream summary generation
+            accumulated = ""
+            async for chunk in summarizer.summarize_stream(
+                transcript=content['raw_content'],
+                metadata=content.get('metadata')
+            ):
+                accumulated += chunk
+                yield f"data: {json.dumps({'status': 'generating', 'chunk': chunk, 'text': accumulated})}\n\n"
+            
+            # Save to database
+            await db.save_summary(content_id, accumulated)
+            
+            yield f"data: {json.dumps({'status': 'completed', 'summary': accumulated, 'summary_length': len(accumulated)})}\n\n"
+            
+            logger.info("summary_stream_completed", content_id=content_id, length=len(accumulated))
+            
+        except Exception as e:
+            logger.error("summary_stream_error", error=str(e))
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")

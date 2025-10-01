@@ -67,6 +67,7 @@ class SearchRequest(BaseModel):
     query: str
     top_k: Optional[int] = None
     min_similarity: Optional[float] = None
+    content_id: Optional[int] = None
 
 
 class AskRequest(BaseModel):
@@ -74,6 +75,7 @@ class AskRequest(BaseModel):
     question: str
     top_k: Optional[int] = None
     min_similarity: Optional[float] = None
+    content_id: Optional[int] = None
 
 
 @app.get("/health")
@@ -136,7 +138,8 @@ async def search_content(request: SearchRequest):
         results = await rag_engine.search(
             query=request.query,
             top_k=request.top_k,
-            min_similarity=request.min_similarity
+            min_similarity=request.min_similarity,
+            content_id=request.content_id
         )
 
         return {
@@ -165,7 +168,8 @@ async def ask_question(request: AskRequest):
         result = await rag_engine.ask(
             question=request.question,
             top_k=request.top_k,
-            min_similarity=request.min_similarity
+            min_similarity=request.min_similarity,
+            content_id=request.content_id
         )
 
         return result

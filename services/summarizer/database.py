@@ -42,7 +42,13 @@ class Database:
                     oc.metadata,
                     sc.summary as summary
                 FROM original_content oc
-                LEFT JOIN summaries_cache sc ON sc.content_id = oc.id
+                LEFT JOIN LATERAL (
+                    SELECT summary
+                    FROM summaries_cache
+                    WHERE content_id = oc.id
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ) sc ON true
                 WHERE oc.id = $1
                 """,
                 content_id

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # Service
     SERVICE_PORT: int = 8000
     LOG_LEVEL: str = "INFO"
+    RELOAD: bool = False  # Hot reload for development
 
     class Config:
         env_file = ".env"

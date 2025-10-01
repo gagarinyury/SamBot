@@ -71,7 +71,7 @@ def generate_summary(content_id: int) -> Dict[str, Any]:
 
 def process_content_pipeline(content_id: int) -> Dict[str, Any]:
     """
-    Full pipeline: Embedding → Summary.
+    Full pipeline: Embedding only (Summary on-demand via UI).
 
     Args:
         content_id: ID of content to process
@@ -91,9 +91,7 @@ def process_content_pipeline(content_id: int) -> Dict[str, Any]:
         logger.error("task_pipeline_embedding_failed", content_id=content_id)
         return results
 
-    # Step 2: Generate summary
-    summary_result = generate_summary(content_id)
-    results['summary'] = summary_result
-
-    logger.info("task_pipeline_completed", content_id=content_id)
+    # Step 2: Summary generation is now on-demand via UI button
+    # User will see real-time streaming when they click "Create Summary"
+    logger.info("task_pipeline_completed", content_id=content_id, note="Summary on-demand")
     return results
