@@ -112,6 +112,23 @@ secrets/
 
 # Generated files
 generated/
-output/cookies.txt
+output/
+cookies.txt
 youtube_cookies.txt
-.env
+
+# Documentation (auto-generated, keep only README.md)
+*_ANALYSIS.md
+*_REPORT.md
+*_SETUP.md
+*_README.md
+!README.md
+
+# Audio storage
+services/content_extractor/audio_storage/
+*.mp3
+*.wav
+*.m4a
+
+# Model cache
+models/
+*.gguf
